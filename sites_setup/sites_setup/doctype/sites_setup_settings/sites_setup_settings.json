@@ -1,0 +1,184 @@
+{
+ "actions": [],
+ "creation": "2024-12-01 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "ssh_section",
+  "ssh_host",
+  "ssh_port",
+  "ssh_user",
+  "column_break_ssh",
+  "ssh_password",
+  "ssh_key_path",
+  "bench_section",
+  "bench_directory",
+  "column_break_bench",
+  "ssl_fullchain_path",
+  "ssl_privkey_path",
+  "site_range_section",
+  "site_prefix",
+  "site_domain",
+  "column_break_site",
+  "site_min",
+  "site_max",
+  "rate_limit_section",
+  "rate_limit_requests",
+  "rate_limit_window_minutes"
+ ],
+ "fields": [
+  {
+   "fieldname": "ssh_section",
+   "fieldtype": "Section Break",
+   "label": "SSH Configuration"
+  },
+  {
+   "fieldname": "ssh_host",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "SSH Host",
+   "reqd": 1
+  },
+  {
+   "default": "22",
+   "fieldname": "ssh_port",
+   "fieldtype": "Int",
+   "label": "SSH Port",
+   "reqd": 1
+  },
+  {
+   "fieldname": "ssh_user",
+   "fieldtype": "Data",
+   "label": "SSH User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_ssh",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "ssh_password",
+   "fieldtype": "Password",
+   "label": "SSH Password"
+  },
+  {
+   "fieldname": "ssh_key_path",
+   "fieldtype": "Data",
+   "label": "SSH Key Path",
+   "description": "Path to SSH private key file (optional if using password)"
+  },
+  {
+   "fieldname": "bench_section",
+   "fieldtype": "Section Break",
+   "label": "Bench Configuration"
+  },
+  {
+   "default": "/home/frappe/frappe-bench",
+   "fieldname": "bench_directory",
+   "fieldtype": "Data",
+   "label": "Bench Directory",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_bench",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "ssl_fullchain_path",
+   "fieldtype": "Data",
+   "label": "SSL Fullchain Path",
+   "reqd": 1,
+   "description": "Path to wildcard SSL certificate fullchain.pem"
+  },
+  {
+   "fieldname": "ssl_privkey_path",
+   "fieldtype": "Data",
+   "label": "SSL Private Key Path",
+   "reqd": 1,
+   "description": "Path to wildcard SSL certificate privkey.pem"
+  },
+  {
+   "fieldname": "site_range_section",
+   "fieldtype": "Section Break",
+   "label": "Site Range Configuration"
+  },
+  {
+   "default": "erp",
+   "fieldname": "site_prefix",
+   "fieldtype": "Data",
+   "label": "Site Prefix",
+   "reqd": 1,
+   "description": "Prefix for site names (e.g., 'erp' for erp101.domain.com)"
+  },
+  {
+   "fieldname": "site_domain",
+   "fieldtype": "Data",
+   "label": "Site Domain",
+   "reqd": 1,
+   "description": "Domain for sites (e.g., havano.cloud)"
+  },
+  {
+   "fieldname": "column_break_site",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "105",
+   "fieldname": "site_min",
+   "fieldtype": "Int",
+   "label": "Site Range Min",
+   "reqd": 1,
+   "description": "Minimum site number (e.g., 105 for erp105)"
+  },
+  {
+   "default": "200",
+   "fieldname": "site_max",
+   "fieldtype": "Int",
+   "label": "Site Range Max",
+   "reqd": 1,
+   "description": "Maximum site number (e.g., 200 for erp200)"
+  },
+  {
+   "fieldname": "rate_limit_section",
+   "fieldtype": "Section Break",
+   "label": "Rate Limiting"
+  },
+  {
+   "default": "5",
+   "fieldname": "rate_limit_requests",
+   "fieldtype": "Int",
+   "label": "Max Requests",
+   "description": "Maximum provisioning requests per user within the time window"
+  },
+  {
+   "default": "60",
+   "fieldname": "rate_limit_window_minutes",
+   "fieldtype": "Int",
+   "label": "Time Window (minutes)",
+   "description": "Time window for rate limiting in minutes"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2024-12-01 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Sites Setup",
+ "name": "Sites Setup Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

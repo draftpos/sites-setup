@@ -1,0 +1,184 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "PROV-.#####",
+ "creation": "2024-12-01 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "requested_subdomain",
+  "admin_password",
+  "column_break_main",
+  "assigned_site",
+  "status",
+  "requested_by",
+  "section_break_server",
+  "server_ip",
+  "server_port",
+  "column_break_server",
+  "bench_directory",
+  "section_break_details",
+  "domain_created",
+  "admin_password_set",
+  "column_break_details",
+  "error_message",
+  "section_break_log",
+  "bench_log"
+ ],
+ "fields": [
+  {
+   "fieldname": "requested_subdomain",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Requested Subdomain",
+   "reqd": 1,
+   "unique": 1,
+   "description": "Enter subdomain only (e.g., 'mycompany'). It will become mycompany.havano.cloud"
+  },
+  {
+   "fieldname": "admin_password",
+   "fieldtype": "Password",
+   "label": "Admin Password",
+   "reqd": 1,
+   "description": "Password must be at least 8 characters with uppercase, lowercase, number, and special character (@$!%*?&)"
+  },
+  {
+   "fieldname": "assigned_site",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Assigned Site",
+   "read_only": 1,
+   "description": "The ERPNext site assigned to this subdomain"
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Pending\nRunning\nSuccess\nFailed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "label": "Requested By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_server",
+   "fieldtype": "Section Break",
+   "label": "Server Information"
+  },
+  {
+   "fieldname": "server_ip",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Server IP",
+   "read_only": 1,
+   "description": "IP address of the server where this domain was provisioned"
+  },
+  {
+   "fieldname": "server_port",
+   "fieldtype": "Data",
+   "label": "Server SSH Port",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_server",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "bench_directory",
+   "fieldtype": "Data",
+   "label": "Bench Directory",
+   "read_only": 1,
+   "description": "Path to the bench directory on the server"
+  },
+  {
+   "fieldname": "section_break_details",
+   "fieldtype": "Section Break",
+   "label": "Provisioning Status"
+  },
+  {
+   "default": "0",
+   "fieldname": "domain_created",
+   "fieldtype": "Check",
+   "label": "Domain Created",
+   "read_only": 1,
+   "description": "Indicates if the domain was successfully added to the site"
+  },
+  {
+   "default": "0",
+   "fieldname": "admin_password_set",
+   "fieldtype": "Check",
+   "label": "Admin Password Set",
+   "read_only": 1,
+   "description": "Indicates if the admin password was successfully set"
+  },
+  {
+   "fieldname": "column_break_details",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Small Text",
+   "label": "Error Message",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_log",
+   "fieldtype": "Section Break",
+   "label": "Execution Log",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "bench_log",
+   "fieldtype": "Long Text",
+   "label": "Bench Log",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-12-01 14:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Sites Setup",
+ "name": "Site Provisioning",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "All",
+   "share": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

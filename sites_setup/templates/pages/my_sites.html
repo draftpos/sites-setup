@@ -1,0 +1,104 @@
+{% extends "templates/web.html" %}
+
+{% block title %}My Sites{% endblock %}
+
+{% block page_content %}
+<div class="container my-5">
+    <div class="row mb-4">
+        <div class="col">
+            <h1>My Sites</h1>
+            <p class="text-muted">Manage your provisioned ERPNext sites</p>
+        </div>
+        <div class="col-auto">
+            <a href="/site-provisioning-form" class="btn btn-primary">
+                Provision New Site
+            </a>
+        </div>
+    </div>
+
+    {% if provisionings %}
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead class="table-light">
+                <tr>
+                    <th>Subdomain</th>
+                    <th>Assigned Site</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in provisionings %}
+                <tr>
+                    <td>
+                        {% if p.status == "Success" %}
+                        <a href="https://{{ p.requested_subdomain }}" target="_blank">
+                            {{ p.requested_subdomain }}
+                        </a>
+                        {% else %}
+                        {{ p.requested_subdomain }}
+                        {% endif %}
+                    </td>
+                    <td>{{ p.assigned_site or "-" }}</td>
+                    <td>
+                        {% if p.status == "Success" %}
+                        <span class="badge bg-success">{{ p.status }}</span>
+                        {% elif p.status == "Failed" %}
+                        <span class="badge bg-danger">{{ p.status }}</span>
+                        {% elif p.status == "Running" %}
+                        <span class="badge bg-info">{{ p.status }}</span>
+                        {% else %}
+                        <span class="badge bg-warning">{{ p.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ frappe.utils.format_datetime(p.creation, "medium") }}</td>
+                    <td>
+                        {% if p.status == "Success" %}
+                        <a href="https://{{ p.requested_subdomain }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                            Visit Site
+                        </a>
+                        {% elif p.status == "Failed" %}
+                        <button class="btn btn-sm btn-outline-secondary"
+                                data-bs-toggle="tooltip"
+                                title="{{ p.error_message }}">
+                            View Error
+                        </button>
+                        {% elif p.status == "Running" or p.status == "Pending" %}
+                        <span class="text-muted">Processing...</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="text-center py-5">
+        <h4>No sites yet</h4>
+        <p class="text-muted">You haven't provisioned any sites yet.</p>
+        <a href="/site-provisioning-form" class="btn btn-primary">
+            Provision Your First Site
+        </a>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+// Auto-refresh for pending/running sites
+document.addEventListener('DOMContentLoaded', function() {
+    const hasPending = {{ 'true' if has_pending else 'false' }};
+    if (hasPending) {
+        setTimeout(function() {
+            location.reload();
+        }, 10000); // Refresh every 10 seconds
+    }
+
+    // Initialize tooltips
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+});
+</script>
+{% endblock %}

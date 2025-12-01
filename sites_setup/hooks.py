@@ -11,15 +11,14 @@ app_license = "mit"
 # required_apps = []
 
 # Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "sites_setup",
-# 		"logo": "/assets/sites_setup/logo.png",
-# 		"title": "Sites Setup",
-# 		"route": "/sites_setup",
-# 		"has_permission": "sites_setup.api.permission.has_app_permission"
-# 	}
-# ]
+add_to_apps_screen = [
+	{
+		"name": "sites_setup",
+		"logo": "/assets/sites_setup/logo.png",
+		"title": "Sites Setup",
+		"route": "/app/site-provisioning",
+	}
+]
 
 # Includes in <head>
 # ------------------
@@ -43,7 +42,7 @@ app_license = "mit"
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
+doctype_js = {"Site Provisioning" : "public/js/site_provisioning.js"}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -69,6 +68,11 @@ app_license = "mit"
 
 # automatically create page for each record of this doctype
 # website_generators = ["Web Page"]
+
+# Website Route Rules
+website_route_rules = [
+	{"from_route": "/my-sites", "to_route": "my_sites"},
+]
 
 # Jinja
 # ----------
@@ -117,13 +121,13 @@ app_license = "mit"
 # -----------
 # Permissions evaluated in scripted ways
 
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
-#
-# has_permission = {
-# 	"Event": "frappe.desk.doctype.event.event.has_permission",
-# }
+permission_query_conditions = {
+	"Site Provisioning": "sites_setup.sites_setup.doctype.site_provisioning.site_provisioning_permissions.get_permission_query_conditions",
+}
+
+has_permission = {
+	"Site Provisioning": "sites_setup.sites_setup.doctype.site_provisioning.site_provisioning_permissions.has_permission",
+}
 
 # DocType Class
 # ---------------
@@ -207,26 +211,13 @@ app_license = "mit"
 # User Data Protection
 # --------------------
 
-# user_data_fields = [
-# 	{
-# 		"doctype": "{doctype_1}",
-# 		"filter_by": "{filter_by}",
-# 		"redact_fields": ["{field_1}", "{field_2}"],
-# 		"partial": 1,
-# 	},
-# 	{
-# 		"doctype": "{doctype_2}",
-# 		"filter_by": "{filter_by}",
-# 		"partial": 1,
-# 	},
-# 	{
-# 		"doctype": "{doctype_3}",
-# 		"strict": False,
-# 	},
-# 	{
-# 		"doctype": "{doctype_4}"
-# 	}
-# ]
+user_data_fields = [
+	{
+		"doctype": "Site Provisioning",
+		"filter_by": "requested_by",
+		"partial": 1,
+	},
+]
 
 # Authentication and authorization
 # --------------------------------
@@ -241,4 +232,3 @@ app_license = "mit"
 # default_log_clearing_doctypes = {
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
-
