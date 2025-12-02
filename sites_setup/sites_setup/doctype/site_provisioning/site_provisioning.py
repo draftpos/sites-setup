@@ -9,9 +9,10 @@ class SiteProvisioning(Document):
     def before_insert(self):
         self.requested_by = frappe.session.user
         self.status = "Pending"
+        self.generate_subdomain_if_empty()
         self.validate_subdomain()
         self.validate_admin_password()
-        self.assign_site()
+        self.handle_site_assignment()
         self.record_server_info()
 
     def after_insert(self):
@@ -20,8 +21,16 @@ class SiteProvisioning(Document):
 
     def validate(self):
         if self.is_new():
+            self.generate_subdomain_if_empty()
             self.validate_subdomain()
             self.validate_admin_password()
+
+    def generate_subdomain_if_empty(self):
+        """Generate subdomain from company name if not provided"""
+        if not self.requested_subdomain and self.company_name:
+            subdomain = generate_subdomain_from_company(self.company_name)
+            if subdomain:
+                self.requested_subdomain = subdomain
 
     def record_server_info(self):
         """Record the server information from current settings"""
@@ -37,6 +46,9 @@ class SiteProvisioning(Document):
 
         if not domain:
             frappe.throw(_("Site domain not configured in Sites Setup Settings"))
+
+        if not self.requested_subdomain:
+            frappe.throw(_("Subdomain is required. Provide a subdomain or company name."))
 
         subdomain = self.requested_subdomain.lower().strip()
 
@@ -58,10 +70,14 @@ class SiteProvisioning(Document):
         full_subdomain = f"{subdomain}.{domain}"
         self.requested_subdomain = full_subdomain
 
-        # Check for uniqueness
+        # Check for uniqueness (exclude unassigned sites)
         existing = frappe.db.exists(
             "Site Provisioning",
-            {"requested_subdomain": full_subdomain, "name": ("!=", self.name or "")},
+            {
+                "requested_subdomain": full_subdomain,
+                "name": ("!=", self.name or ""),
+                "is_unassigned": 0
+            },
         )
         if existing:
             frappe.throw(_("This subdomain ({0}) is already taken").format(full_subdomain))
@@ -89,33 +105,29 @@ class SiteProvisioning(Document):
                 )
             )
 
-    def assign_site(self):
+    def handle_site_assignment(self):
+        """Handle site assignment - allow admin to select or auto-assign"""
+        # If admin manually selected a site, validate it
+        if self.assigned_site:
+            if "System Manager" not in frappe.get_roles():
+                frappe.throw(_("Only System Managers can manually select a site"))
+
+            # Validate the selected site is in the valid range and available
+            unassigned_sites = get_unassigned_sites()
+            if self.assigned_site not in unassigned_sites:
+                frappe.throw(_("The selected site '{0}' is not available").format(self.assigned_site))
+        else:
+            # Auto-assign the next available site
+            self.auto_assign_site()
+
+    def auto_assign_site(self):
         """Assign the next available site from the pool"""
-        settings = frappe.get_single("Sites Setup Settings")
+        unassigned_sites = get_unassigned_sites()
 
-        site_min = settings.site_min
-        site_max = settings.site_max
-        prefix = settings.site_prefix
-        domain = settings.site_domain
+        if not unassigned_sites:
+            frappe.throw(_("No available ERP sites. Please contact support."))
 
-        if not all([site_min, site_max, prefix, domain]):
-            frappe.throw(_("Site range not properly configured in Sites Setup Settings"))
-
-        # Get all assigned sites
-        assigned_sites = frappe.get_all(
-            "Site Provisioning",
-            filters={"assigned_site": ("is", "set")},
-            pluck="assigned_site",
-        )
-
-        # Find next available site
-        for i in range(site_min, site_max + 1):
-            site = f"{prefix}{i}.{domain}"
-            if site not in assigned_sites:
-                self.assigned_site = site
-                return
-
-        frappe.throw(_("No available ERP sites. Please contact support."))
+        self.assigned_site = unassigned_sites[0]
 
     def start_provisioning_auto(self):
         """Auto-start provisioning (called from after_insert)"""
@@ -165,28 +177,129 @@ class SiteProvisioning(Document):
 
         return {"message": _("Provisioning started")}
 
-    @staticmethod
-    def get_next_available_site():
-        """Static method to get next available site without creating a document"""
-        settings = frappe.get_single("Sites Setup Settings")
+    @frappe.whitelist()
+    def unassign_site(self, backup=True):
+        """Unassign the site and optionally backup"""
+        if "System Manager" not in frappe.get_roles():
+            frappe.throw(_("Only System Managers can unassign sites"), frappe.PermissionError)
 
-        site_min = settings.site_min
-        site_max = settings.site_max
-        prefix = settings.site_prefix
-        domain = settings.site_domain
+        if self.status != "Success":
+            frappe.throw(_("Can only unassign successfully provisioned sites"))
 
-        assigned_sites = frappe.get_all(
-            "Site Provisioning",
-            filters={"assigned_site": ("is", "set")},
-            pluck="assigned_site",
+        if self.is_unassigned:
+            frappe.throw(_("This site is already unassigned"))
+
+        # Enqueue background job for unassignment
+        enqueue(
+            "sites_setup.sites_setup.doctype.site_provisioning.site_provisioning.run_unassign",
+            queue="long",
+            timeout=600,
+            provisioning_name=self.name,
+            backup=backup,
         )
 
-        for i in range(site_min, site_max + 1):
-            site = f"{prefix}{i}.{domain}"
-            if site not in assigned_sites:
-                return site
+        return {"message": _("Unassignment process started. Site will be backed up and domain removed.")}
 
+
+def generate_subdomain_from_company(company_name):
+    """Generate a subdomain from company name (max 10 chars)"""
+    if not company_name:
         return None
+
+    # Normalize: lowercase, remove special chars, replace spaces with nothing
+    subdomain = company_name.lower().strip()
+
+    # Remove all non-alphanumeric characters except hyphens
+    subdomain = re.sub(r'[^a-z0-9]', '', subdomain)
+
+    # Take first 10 characters
+    subdomain = subdomain[:10]
+
+    # Ensure it starts and ends with alphanumeric
+    subdomain = subdomain.strip('-')
+
+    if not subdomain:
+        return None
+
+    # Check if subdomain is already taken, append number if needed
+    settings = frappe.get_single("Sites Setup Settings")
+    domain = settings.site_domain
+
+    original_subdomain = subdomain
+    counter = 1
+
+    while True:
+        full_subdomain = f"{subdomain}.{domain}"
+        exists = frappe.db.exists(
+            "Site Provisioning",
+            {"requested_subdomain": full_subdomain, "is_unassigned": 0}
+        )
+        if not exists:
+            return subdomain
+
+        # Try with counter
+        subdomain = f"{original_subdomain[:8]}{counter}"
+        counter += 1
+
+        if counter > 99:
+            # Give up after 99 attempts
+            return None
+
+
+def get_unassigned_sites():
+    """Get list of unassigned sites from the pool"""
+    settings = frappe.get_single("Sites Setup Settings")
+
+    site_min = settings.site_min
+    site_max = settings.site_max
+    prefix = settings.site_prefix
+    domain = settings.site_domain
+
+    if not all([site_min, site_max, prefix, domain]):
+        return []
+
+    # Get all assigned sites (excluding unassigned ones)
+    assigned_sites = frappe.get_all(
+        "Site Provisioning",
+        filters={"assigned_site": ("is", "set"), "is_unassigned": 0},
+        pluck="assigned_site",
+    )
+
+    # Generate list of unassigned sites
+    unassigned = []
+    for i in range(site_min, site_max + 1):
+        site = f"{prefix}{i}.{domain}"
+        if site not in assigned_sites:
+            unassigned.append(site)
+
+    return unassigned
+
+
+def get_sites_stats():
+    """Get statistics about site assignments"""
+    settings = frappe.get_single("Sites Setup Settings")
+
+    site_min = settings.site_min or 0
+    site_max = settings.site_max or 0
+    total_sites = max(0, site_max - site_min + 1) if site_min and site_max else 0
+
+    # Count assigned sites (excluding unassigned)
+    assigned_count = frappe.db.count(
+        "Site Provisioning",
+        filters={"assigned_site": ("is", "set"), "is_unassigned": 0}
+    )
+
+    unassigned_count = total_sites - assigned_count
+
+    return {
+        "total_sites": total_sites,
+        "assigned_count": assigned_count,
+        "unassigned_count": unassigned_count,
+        "site_prefix": settings.site_prefix,
+        "site_domain": settings.site_domain,
+        "site_min": site_min,
+        "site_max": site_max,
+    }
 
 
 def run_provisioning(provisioning_name, admin_password):
@@ -248,6 +361,25 @@ def run_provisioning(provisioning_name, admin_password):
             _send_failure_email(provisioning)
             return
 
+        # Step 3: Update admin user details on the remote site (if provided)
+        if provisioning.first_name or provisioning.company_name:
+            try:
+                user_update_log = service.update_admin_user(
+                    provisioning.assigned_site,
+                    {
+                        "first_name": provisioning.first_name,
+                        "middle_name": provisioning.middle_name,
+                        "last_name": provisioning.last_name,
+                        "phone": provisioning.phone,
+                    }
+                )
+                provisioning.bench_log = (provisioning.bench_log or "") + "\n\n" + user_update_log
+                provisioning.save(ignore_permissions=True)
+                frappe.db.commit()
+            except Exception as e:
+                # Non-fatal error, just log it
+                frappe.logger().warning(f"Failed to update admin user details: {str(e)}")
+
         service.disconnect()
 
         # Mark as success
@@ -260,8 +392,12 @@ def run_provisioning(provisioning_name, admin_password):
             f"Successfully provisioned {provisioning.requested_subdomain} -> {provisioning.assigned_site}"
         )
 
-        # Send success email
-        _send_success_email(provisioning)
+        # Send success email asynchronously (after returning to caller)
+        enqueue(
+            "sites_setup.sites_setup.doctype.site_provisioning.site_provisioning._send_welcome_email",
+            queue="short",
+            provisioning_name=provisioning.name,
+        )
 
     except Exception as e:
         frappe.logger().error(f"Failed to provision {provisioning.requested_subdomain}: {str(e)}")
@@ -274,42 +410,151 @@ def run_provisioning(provisioning_name, admin_password):
         _send_failure_email(provisioning)
 
 
-def _send_success_email(provisioning):
-    """Send success notification email"""
+def run_unassign(provisioning_name, backup=True):
+    """
+    Background job to unassign a site.
+    """
+    from sites_setup.sites_setup.ssh_service import ERPSshService
+
+    provisioning = frappe.get_doc("Site Provisioning", provisioning_name)
+
     try:
-        user = frappe.get_doc("User", provisioning.requested_by)
+        frappe.logger().info(f"Starting unassignment for {provisioning.requested_subdomain}")
+
+        service = ERPSshService()
+
+        # Step 1: Backup the site if requested
+        if backup:
+            try:
+                backup_log = service.backup_site(provisioning.assigned_site)
+                provisioning.bench_log = (provisioning.bench_log or "") + "\n\n=== UNASSIGN BACKUP ===\n" + backup_log
+                provisioning.save(ignore_permissions=True)
+                frappe.db.commit()
+                frappe.logger().info(f"Backup completed for {provisioning.assigned_site}")
+            except Exception as e:
+                frappe.logger().error(f"Failed to backup site: {str(e)}")
+                # Continue with unassignment even if backup fails
+                provisioning.bench_log = (provisioning.bench_log or "") + f"\n\n=== BACKUP FAILED ===\n{str(e)}"
+                provisioning.save(ignore_permissions=True)
+                frappe.db.commit()
+
+        # Step 2: Remove domain from site
+        try:
+            remove_log = service.remove_domain_from_site(
+                provisioning.requested_subdomain,
+                provisioning.assigned_site,
+            )
+            provisioning.bench_log = (provisioning.bench_log or "") + "\n\n=== DOMAIN REMOVED ===\n" + remove_log
+            provisioning.save(ignore_permissions=True)
+            frappe.db.commit()
+            frappe.logger().info(f"Domain removed for {provisioning.requested_subdomain}")
+        except Exception as e:
+            frappe.logger().error(f"Failed to remove domain: {str(e)}")
+            provisioning.error_message = f"Domain removal failed: {str(e)}"
+            provisioning.save(ignore_permissions=True)
+            frappe.db.commit()
+            return
+
+        service.disconnect()
+
+        # Mark as unassigned
+        provisioning.status = "Unassigned"
+        provisioning.is_unassigned = 1
+        provisioning.domain_created = 0
+        provisioning.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        frappe.logger().info(
+            f"Successfully unassigned {provisioning.requested_subdomain} from {provisioning.assigned_site}"
+        )
+
+    except Exception as e:
+        frappe.logger().error(f"Failed to unassign {provisioning.requested_subdomain}: {str(e)}")
+        provisioning.error_message = str(e)
+        provisioning.save(ignore_permissions=True)
+        frappe.db.commit()
+
+
+def _send_welcome_email(provisioning_name):
+    """Send welcome notification email (called async after API response)"""
+    try:
+        provisioning = frappe.get_doc("Site Provisioning", provisioning_name)
+
+        # Determine recipient email
+        recipient_email = provisioning.email
+        if not recipient_email and provisioning.requested_by:
+            user = frappe.get_doc("User", provisioning.requested_by)
+            recipient_email = user.email
+
+        if not recipient_email:
+            return
+
+        # Get user name
+        user_name = provisioning.first_name or "User"
+        if provisioning.last_name:
+            user_name = f"{provisioning.first_name} {provisioning.last_name}"
+
         frappe.sendmail(
-            recipients=[user.email],
-            subject=f"Your ERPNext Site is Ready - {provisioning.requested_subdomain}",
+            recipients=[recipient_email],
+            subject=f"Welcome! Your ERPNext Site is Ready - {provisioning.requested_subdomain}",
             message=f"""
-            <h2>Your ERPNext Site is Ready!</h2>
-            <p>Hello {user.first_name or user.email},</p>
-            <p>Your ERPNext site has been successfully provisioned.</p>
-            <h3>Site Details:</h3>
-            <ul>
-                <li><strong>URL:</strong> <a href="https://{provisioning.requested_subdomain}">https://{provisioning.requested_subdomain}</a></li>
-                <li><strong>Username:</strong> Administrator</li>
-                <li><strong>Password:</strong> The password you set during provisioning</li>
-                <li><strong>Server:</strong> {provisioning.server_ip}</li>
-            </ul>
-            <p>Please login and change your password if needed.</p>
-            <p>Best regards,<br>Sites Setup System</p>
+            <h2>Welcome to ERPNext!</h2>
+            <p>Hello {user_name},</p>
+            <p>Great news! Your ERPNext site has been successfully provisioned and is ready to use.</p>
+
+            <h3>Your Site Details:</h3>
+            <table style="border-collapse: collapse; margin: 20px 0;">
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd;"><strong>Site URL</strong></td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">
+                        <a href="https://{provisioning.requested_subdomain}">https://{provisioning.requested_subdomain}</a>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd;"><strong>Username</strong></td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">Administrator</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd;"><strong>Password</strong></td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">The password you set during registration</td>
+                </tr>
+            </table>
+
+            <h3>Getting Started:</h3>
+            <ol>
+                <li>Click the link above to access your site</li>
+                <li>Login with Administrator and your password</li>
+                <li>Complete the setup wizard to configure your company</li>
+            </ol>
+
+            <p>If you have any questions, please don't hesitate to reach out to our support team.</p>
+
+            <p>Best regards,<br>The ERPNext Team</p>
             """,
         )
     except Exception as e:
-        frappe.logger().error(f"Failed to send success email: {str(e)}")
+        frappe.logger().error(f"Failed to send welcome email: {str(e)}")
 
 
 def _send_failure_email(provisioning):
     """Send failure notification email"""
     try:
-        user = frappe.get_doc("User", provisioning.requested_by)
+        recipient_email = provisioning.email
+        if not recipient_email and provisioning.requested_by:
+            user = frappe.get_doc("User", provisioning.requested_by)
+            recipient_email = user.email
+
+        if not recipient_email:
+            return
+
+        user_name = provisioning.first_name or "User"
+
         frappe.sendmail(
-            recipients=[user.email],
+            recipients=[recipient_email],
             subject=f"Site Provisioning Failed - {provisioning.requested_subdomain}",
             message=f"""
             <h2>Site Provisioning Failed</h2>
-            <p>Hello {user.first_name or user.email},</p>
+            <p>Hello {user_name},</p>
             <p>Unfortunately, we were unable to fully provision your ERPNext site.</p>
             <h3>Details:</h3>
             <ul>

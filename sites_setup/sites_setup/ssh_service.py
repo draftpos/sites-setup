@@ -186,6 +186,108 @@ class ERPSshService:
 
         return full_log
 
+    def backup_site(self, assigned_site):
+        """Backup an ERPNext site"""
+        bench_dir = self.config["bench_dir"]
+
+        command = (
+            f"cd {self._escape_shell(bench_dir)} && "
+            f"bench --site {self._escape_shell(assigned_site)} backup --with-files"
+        )
+
+        result = self.execute_command(command)
+
+        if result["exit_code"] != 0:
+            raise Exception(
+                f"Backup failed with exit code {result['exit_code']}: {result['stderr']}"
+            )
+
+        full_log = f"COMMAND: {command}\n\n"
+        full_log += f"STDOUT:\n{result['output']}\n\n"
+        if result["stderr"]:
+            full_log += f"STDERR:\n{result['stderr']}\n"
+        full_log += f"EXIT CODE: {result['exit_code']}"
+
+        return full_log
+
+    def remove_domain_from_site(self, subdomain, assigned_site):
+        """Remove a domain from an ERPNext site"""
+        bench_dir = self.config["bench_dir"]
+
+        command = (
+            f"cd {self._escape_shell(bench_dir)} && "
+            f"bench setup remove-domain {self._escape_shell(subdomain)} "
+            f"--site {self._escape_shell(assigned_site)} && "
+            f"bench setup nginx --yes && "
+            f"sudo service nginx reload"
+        )
+
+        result = self.execute_command(command)
+
+        if result["exit_code"] != 0:
+            raise Exception(
+                f"Remove domain failed with exit code {result['exit_code']}: {result['stderr']}"
+            )
+
+        full_log = f"COMMAND: {command}\n\n"
+        full_log += f"STDOUT:\n{result['output']}\n\n"
+        if result["stderr"]:
+            full_log += f"STDERR:\n{result['stderr']}\n"
+        full_log += f"EXIT CODE: {result['exit_code']}"
+
+        return full_log
+
+    def update_admin_user(self, assigned_site, user_details):
+        """Update the Administrator user details on the remote site"""
+        bench_dir = self.config["bench_dir"]
+
+        # Build the frappe command to update user
+        updates = []
+        if user_details.get("first_name"):
+            updates.append(f"first_name='{user_details['first_name']}'")
+        if user_details.get("middle_name"):
+            updates.append(f"middle_name='{user_details['middle_name']}'")
+        if user_details.get("last_name"):
+            updates.append(f"last_name='{user_details['last_name']}'")
+        if user_details.get("phone"):
+            updates.append(f"phone='{user_details['phone']}'")
+
+        if not updates:
+            return "No user details to update"
+
+        # Use bench execute to run a Python command
+        update_script = f"""
+import frappe
+frappe.connect(site='{assigned_site}')
+user = frappe.get_doc('User', 'Administrator')
+"""
+        for update in updates:
+            field, value = update.split('=', 1)
+            update_script += f"user.{field} = {value}\n"
+
+        update_script += """
+user.save(ignore_permissions=True)
+frappe.db.commit()
+print('Administrator user updated successfully')
+"""
+
+        # Write script to temp file and execute
+        command = (
+            f"cd {self._escape_shell(bench_dir)} && "
+            f"bench --site {self._escape_shell(assigned_site)} execute "
+            f"\"frappe.db.set_value('User', 'Administrator', {{'first_name': '{user_details.get('first_name', '')}', 'last_name': '{user_details.get('last_name', '')}', 'phone': '{user_details.get('phone', '')}'}})\""
+        )
+
+        result = self.execute_command(command)
+
+        full_log = f"COMMAND: Update Administrator user details\n\n"
+        full_log += f"STDOUT:\n{result['output']}\n\n"
+        if result["stderr"]:
+            full_log += f"STDERR:\n{result['stderr']}\n"
+        full_log += f"EXIT CODE: {result['exit_code']}"
+
+        return full_log
+
     def test_connection(self):
         """Test the SSH connection and Bench availability"""
         try:

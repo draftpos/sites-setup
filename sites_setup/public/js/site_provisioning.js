@@ -1,4 +1,30 @@
 frappe.ui.form.on('Site Provisioning', {
+    onload: function(frm) {
+        // Load site options for admin site selection
+        if (frm.is_new() && frappe.user_roles.includes('System Manager')) {
+            frm.trigger('load_site_options');
+        }
+    },
+
+    load_site_options: function(frm) {
+        // Fetch unassigned sites for the dropdown
+        frappe.call({
+            method: 'sites_setup.api.get_unassigned_sites',
+            callback: function(r) {
+                if (r.message && r.message.length > 0) {
+                    let options = [''].concat(r.message);
+                    frm.set_df_property('assigned_site', 'options', options.join('\n'));
+                    frm.set_df_property('assigned_site', 'description',
+                        `<span class="text-info">${r.message.length} sites available. Leave empty for auto-assignment.</span>`);
+                } else {
+                    frm.set_df_property('assigned_site', 'options', '');
+                    frm.set_df_property('assigned_site', 'description',
+                        '<span class="text-danger">No sites available!</span>');
+                }
+            }
+        });
+    },
+
     refresh: function(frm) {
         // Show status indicators
         if (frm.doc.status === 'Success') {
@@ -9,6 +35,40 @@ frappe.ui.form.on('Site Provisioning', {
                         https://${frm.doc.requested_subdomain}
                     </a>
                     <br><small>Server: ${frm.doc.server_ip || 'N/A'}</small>
+                </div>`
+            );
+
+            // Add unassign button for System Managers
+            if (frappe.user_roles.includes('System Manager') && !frm.doc.is_unassigned) {
+                frm.add_custom_button(__('Unassign Site'), function() {
+                    frappe.confirm(
+                        __('Are you sure you want to unassign this site? This will backup the site and remove the domain.'),
+                        function() {
+                            frappe.call({
+                                method: 'unassign_site',
+                                doc: frm.doc,
+                                args: { backup: true },
+                                freeze: true,
+                                freeze_message: __('Starting unassignment process...'),
+                                callback: function(r) {
+                                    if (r.message) {
+                                        frappe.show_alert({
+                                            message: r.message.message,
+                                            indicator: 'blue'
+                                        });
+                                        frm.reload_doc();
+                                    }
+                                }
+                            });
+                        }
+                    );
+                }, __('Actions'));
+            }
+        } else if (frm.doc.status === 'Unassigned') {
+            frm.dashboard.set_headline_alert(
+                `<div class="alert alert-warning">
+                    <strong>Site Unassigned</strong> - This domain has been removed and the site is available for reuse.
+                    <br><small>Previous Server: ${frm.doc.server_ip || 'N/A'}</small>
                 </div>`
             );
         } else if (frm.doc.status === 'Failed') {
@@ -219,6 +279,22 @@ frappe.ui.form.on('Site Provisioning', {
             setTimeout(function() {
                 frm.reload_doc();
             }, 2000);
+        }
+    },
+
+    company_name: function(frm) {
+        // Auto-suggest subdomain when company name changes (if subdomain is empty)
+        if (frm.doc.company_name && !frm.doc.requested_subdomain && frm.is_new()) {
+            let suggested = frm.doc.company_name.toLowerCase()
+                .replace(/[^a-z0-9]/g, '')
+                .substring(0, 10);
+            if (suggested) {
+                frm.set_value('requested_subdomain', suggested);
+                frappe.show_alert({
+                    message: __('Subdomain auto-generated from company name'),
+                    indicator: 'blue'
+                });
+            }
         }
     }
 });

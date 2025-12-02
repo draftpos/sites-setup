@@ -12,6 +12,20 @@
   "assigned_site",
   "status",
   "requested_by",
+  "section_break_user_details",
+  "first_name",
+  "middle_name",
+  "last_name",
+  "column_break_user1",
+  "email",
+  "phone",
+  "section_break_company",
+  "company_name",
+  "industry",
+  "column_break_company",
+  "address",
+  "city",
+  "country",
   "section_break_server",
   "server_ip",
   "server_port",
@@ -21,6 +35,7 @@
   "domain_created",
   "admin_password_set",
   "column_break_details",
+  "is_unassigned",
   "error_message",
   "section_break_log",
   "bench_log"
@@ -34,7 +49,7 @@
    "label": "Requested Subdomain",
    "reqd": 1,
    "unique": 1,
-   "description": "Enter subdomain only (e.g., 'mycompany'). It will become mycompany.havano.cloud"
+   "description": "Enter subdomain only (e.g., 'mycompany'). It will become mycompany.havano.cloud. Leave empty to auto-generate from company name."
   },
   {
    "fieldname": "admin_password",
@@ -45,11 +60,10 @@
   },
   {
    "fieldname": "assigned_site",
-   "fieldtype": "Data",
+   "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Assigned Site",
-   "read_only": 1,
-   "description": "The ERPNext site assigned to this subdomain"
+   "description": "Select a specific site or leave empty for auto-assignment. Only System Managers can select manually."
   },
   {
    "fieldname": "column_break_main",
@@ -62,7 +76,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Pending\nRunning\nSuccess\nFailed",
+   "options": "Pending\nRunning\nSuccess\nFailed\nUnassigned",
    "read_only": 1
   },
   {
@@ -71,6 +85,78 @@
    "label": "Requested By",
    "options": "User",
    "read_only": 1
+  },
+  {
+   "fieldname": "section_break_user_details",
+   "fieldtype": "Section Break",
+   "label": "User Details",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "first_name",
+   "fieldtype": "Data",
+   "label": "First Name"
+  },
+  {
+   "fieldname": "middle_name",
+   "fieldtype": "Data",
+   "label": "Middle Name"
+  },
+  {
+   "fieldname": "last_name",
+   "fieldtype": "Data",
+   "label": "Last Name"
+  },
+  {
+   "fieldname": "column_break_user1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "options": "Email",
+   "label": "Email"
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "options": "Phone",
+   "label": "Phone"
+  },
+  {
+   "fieldname": "section_break_company",
+   "fieldtype": "Section Break",
+   "label": "Company Details",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "company_name",
+   "fieldtype": "Data",
+   "label": "Company Name"
+  },
+  {
+   "fieldname": "industry",
+   "fieldtype": "Data",
+   "label": "Industry"
+  },
+  {
+   "fieldname": "column_break_company",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "address",
+   "fieldtype": "Data",
+   "label": "Address"
+  },
+  {
+   "fieldname": "city",
+   "fieldtype": "Data",
+   "label": "City"
+  },
+  {
+   "fieldname": "country",
+   "fieldtype": "Data",
+   "label": "Country"
   },
   {
    "fieldname": "section_break_server",
@@ -129,6 +215,14 @@
    "fieldtype": "Column Break"
   },
   {
+   "default": "0",
+   "fieldname": "is_unassigned",
+   "fieldtype": "Check",
+   "label": "Is Unassigned",
+   "read_only": 1,
+   "description": "Indicates if this site has been unassigned and is available for reuse"
+  },
+  {
    "fieldname": "error_message",
    "fieldtype": "Small Text",
    "label": "Error Message",
@@ -148,8 +242,13 @@
   }
  ],
  "index_web_pages_for_search": 1,
- "links": [],
- "modified": "2024-12-01 14:00:00.000000",
+ "links": [
+  {
+   "link_doctype": "Sites Setup Settings",
+   "link_fieldname": "name"
+  }
+ ],
+ "modified": "2024-12-01 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Sites Setup",
  "name": "Site Provisioning",
