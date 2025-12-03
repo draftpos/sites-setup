@@ -188,32 +188,17 @@ class ERPSshService:
 
     def backup_site(self, assigned_site, domain_name=None):
         """
-        Backup an ERPNext site with optional domain name in the backup filename.
+        Backup an ERPNext site.
 
         Args:
             assigned_site: The site to backup (e.g., erp105.havano.cloud)
-            domain_name: Optional domain being removed, will be included in backup filename
+            domain_name: Optional domain being removed (for logging purposes)
         """
         bench_dir = self.config["bench_dir"]
 
-        # Generate timestamp for unique backup name
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        # Create a descriptive backup directory name
-        if domain_name:
-            # Clean the domain name for use in directory name
-            clean_domain = domain_name.replace(".", "_").replace("-", "_")
-            backup_dir = f"unassign_{clean_domain}_{timestamp}"
-        else:
-            backup_dir = f"backup_{timestamp}"
-
-        # Create backup directory and run backup with custom path
         command = (
             f"cd {self._escape_shell(bench_dir)} && "
-            f"mkdir -p sites/{self._escape_shell(assigned_site)}/private/backups/{self._escape_shell(backup_dir)} && "
-            f"bench --site {self._escape_shell(assigned_site)} backup --with-files "
-            f"--backup-path sites/{self._escape_shell(assigned_site)}/private/backups/{self._escape_shell(backup_dir)}"
+            f"bench --site {self._escape_shell(assigned_site)} backup --with-files"
         )
 
         result = self.execute_command(command)
@@ -227,8 +212,7 @@ class ERPSshService:
         full_log += f"Site: {assigned_site}\n"
         if domain_name:
             full_log += f"Domain being removed: {domain_name}\n"
-        full_log += f"Backup directory: sites/{assigned_site}/private/backups/{backup_dir}\n\n"
-        full_log += f"COMMAND: {command}\n\n"
+        full_log += f"\nCOMMAND: {command}\n\n"
         full_log += f"STDOUT:\n{result['output']}\n\n"
         if result["stderr"]:
             full_log += f"STDERR:\n{result['stderr']}\n"
@@ -264,49 +248,65 @@ class ERPSshService:
         return full_log
 
     def update_admin_user(self, assigned_site, user_details):
-        """Update the Administrator user details on the remote site"""
+        """Update the Administrator user details on the remote site using a Python script"""
         bench_dir = self.config["bench_dir"]
 
-        # Build the frappe command to update user
-        updates = []
-        if user_details.get("first_name"):
-            updates.append(f"first_name='{user_details['first_name']}'")
-        if user_details.get("middle_name"):
-            updates.append(f"middle_name='{user_details['middle_name']}'")
-        if user_details.get("last_name"):
-            updates.append(f"last_name='{user_details['last_name']}'")
-        if user_details.get("phone"):
-            updates.append(f"phone='{user_details['phone']}'")
+        # Check if there's anything to update
+        first_name = user_details.get("first_name", "").replace("'", "\\'")
+        middle_name = user_details.get("middle_name", "").replace("'", "\\'")
+        last_name = user_details.get("last_name", "").replace("'", "\\'")
+        phone = user_details.get("phone", "").replace("'", "\\'")
 
-        if not updates:
+        if not any([first_name, middle_name, last_name, phone]):
             return "No user details to update"
 
-        # Use bench execute to run a Python command
-        update_script = f"""
+        # Create a Python script to update the user
+        script_content = f"""#!/usr/bin/env python3
 import frappe
-frappe.connect(site='{assigned_site}')
-user = frappe.get_doc('User', 'Administrator')
-"""
-        for update in updates:
-            field, value = update.split('=', 1)
-            update_script += f"user.{field} = {value}\n"
 
-        update_script += """
-user.save(ignore_permissions=True)
-frappe.db.commit()
-print('Administrator user updated successfully')
+frappe.init(site='{assigned_site}')
+frappe.connect()
+
+try:
+    updates = {{}}
+    if '{first_name}':
+        updates['first_name'] = '{first_name}'
+    if '{middle_name}':
+        updates['middle_name'] = '{middle_name}'
+    if '{last_name}':
+        updates['last_name'] = '{last_name}'
+    if '{phone}':
+        updates['phone'] = '{phone}'
+
+    if updates:
+        frappe.db.set_value('User', 'Administrator', updates)
+        frappe.db.commit()
+        print('Administrator user updated successfully')
+        print(f'Updated fields: {{list(updates.keys())}}')
+    else:
+        print('No fields to update')
+except Exception as e:
+    print(f'Error: {{str(e)}}')
+    raise
+finally:
+    frappe.destroy()
 """
 
-        # Write script to temp file and execute
+        # Write script to temp file, execute it, then clean up
+        script_path = f"/tmp/update_admin_{assigned_site.replace('.', '_')}.py"
+
         command = (
+            f"cat > {script_path} << 'SCRIPT_EOF'\n{script_content}\nSCRIPT_EOF\n"
             f"cd {self._escape_shell(bench_dir)} && "
-            f"bench --site {self._escape_shell(assigned_site)} execute "
-            f"\"frappe.db.set_value('User', 'Administrator', {{'first_name': '{user_details.get('first_name', '')}', 'last_name': '{user_details.get('last_name', '')}', 'phone': '{user_details.get('phone', '')}'}})\""
+            f"../env/bin/python {script_path} && "
+            f"rm -f {script_path}"
         )
 
         result = self.execute_command(command)
 
-        full_log = f"COMMAND: Update Administrator user details\n\n"
+        full_log = f"COMMAND: Update Administrator user details\n"
+        full_log += f"Site: {assigned_site}\n"
+        full_log += f"Fields: first_name={first_name}, last_name={last_name}, phone={phone}\n\n"
         full_log += f"STDOUT:\n{result['output']}\n\n"
         if result["stderr"]:
             full_log += f"STDERR:\n{result['stderr']}\n"

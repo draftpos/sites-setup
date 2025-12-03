@@ -1,5 +1,6 @@
 frappe.listview_settings['Available Site'] = {
     hide_name_column: true,
+    filters: [['status', '=', 'Available']],
 
     get_indicator: function(doc) {
         if (doc.status === 'Available') {
