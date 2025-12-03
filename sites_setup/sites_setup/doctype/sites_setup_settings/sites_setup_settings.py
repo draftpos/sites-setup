@@ -8,6 +8,11 @@ class SitesSetupSettings(Document):
             if self.site_min > self.site_max:
                 frappe.throw("Site Range Min cannot be greater than Site Range Max")
 
+    def on_update(self):
+        """Sync available sites when settings are updated"""
+        from sites_setup.sites_setup.doctype.available_site.available_site import sync_available_sites
+        sync_available_sites()
+
     @staticmethod
     def get_settings():
         """Get the Sites Setup Settings as a dictionary"""

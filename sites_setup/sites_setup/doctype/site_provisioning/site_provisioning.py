@@ -17,6 +17,10 @@ class SiteProvisioning(Document):
 
     def after_insert(self):
         """Auto-start provisioning after document is created"""
+        # Mark the site as assigned in Available Site
+        from sites_setup.sites_setup.doctype.available_site.available_site import mark_site_assigned
+        mark_site_assigned(self.assigned_site, self.name)
+
         self.start_provisioning_auto()
 
     def validate(self):
@@ -466,6 +470,11 @@ def run_unassign(provisioning_name, backup=True):
         provisioning.is_unassigned = 1
         provisioning.domain_created = 0
         provisioning.save(ignore_permissions=True)
+
+        # Mark the site as available in Available Site
+        from sites_setup.sites_setup.doctype.available_site.available_site import mark_site_available
+        mark_site_available(provisioning.assigned_site)
+
         frappe.db.commit()
 
         frappe.logger().info(

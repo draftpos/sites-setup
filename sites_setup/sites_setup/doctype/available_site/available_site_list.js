@@ -21,6 +21,20 @@ frappe.listview_settings['Available Site'] = {
             frappe.set_route('List', 'Site Provisioning');
         });
 
+        // Add Sync button
+        listview.page.add_inner_button(__('Sync Sites'), function() {
+            frappe.call({
+                method: 'sites_setup.sites_setup.doctype.available_site.available_site.sync_sites',
+                freeze: true,
+                freeze_message: __('Syncing sites...'),
+                callback: function(r) {
+                    if (r.message) {
+                        listview.refresh();
+                    }
+                }
+            });
+        });
+
         // Add quick provision button
         listview.page.add_inner_button(__('New Provisioning'), function() {
             frappe.new_doc('Site Provisioning');

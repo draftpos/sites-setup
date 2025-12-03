@@ -3,6 +3,20 @@ frappe.ui.form.on('Sites Setup Settings', {
         // Show dashboard with site stats
         frm.trigger('show_sites_dashboard');
 
+        // Add Sync Sites button
+        frm.add_custom_button(__('Sync Sites'), function() {
+            frappe.call({
+                method: 'sites_setup.sites_setup.doctype.available_site.available_site.sync_sites',
+                freeze: true,
+                freeze_message: __('Syncing sites...'),
+                callback: function(r) {
+                    if (r.message) {
+                        frm.reload_doc();
+                    }
+                }
+            });
+        }, __('Actions'));
+
         // Add Test SSH Connection button
         frm.add_custom_button(__('Test SSH Connection'), function() {
             frappe.call({
