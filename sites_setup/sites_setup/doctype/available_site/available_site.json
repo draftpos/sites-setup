@@ -1,0 +1,55 @@
+{
+ "actions": [],
+ "creation": "2024-12-02 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "site_name",
+  "column_break_1",
+  "status"
+ ],
+ "fields": [
+  {
+   "fieldname": "site_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Site Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Available",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Available\nAssigned",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "is_virtual": 1,
+ "links": [],
+ "modified": "2024-12-02 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Sites Setup",
+ "name": "Available Site",
+ "naming_rule": "By fieldname",
+ "autoname": "field:site_name",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "read": 1,
+   "role": "System Manager"
+  }
+ ],
+ "sort_field": "site_name",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 0
+}

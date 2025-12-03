@@ -426,11 +426,15 @@ def run_unassign(provisioning_name, backup=True):
         # Step 1: Backup the site if requested
         if backup:
             try:
-                backup_log = service.backup_site(provisioning.assigned_site)
+                # Pass the domain name to include in backup folder name
+                backup_log = service.backup_site(
+                    provisioning.assigned_site,
+                    domain_name=provisioning.requested_subdomain
+                )
                 provisioning.bench_log = (provisioning.bench_log or "") + "\n\n=== UNASSIGN BACKUP ===\n" + backup_log
                 provisioning.save(ignore_permissions=True)
                 frappe.db.commit()
-                frappe.logger().info(f"Backup completed for {provisioning.assigned_site}")
+                frappe.logger().info(f"Backup completed for {provisioning.assigned_site} (domain: {provisioning.requested_subdomain})")
             except Exception as e:
                 frappe.logger().error(f"Failed to backup site: {str(e)}")
                 # Continue with unassignment even if backup fails

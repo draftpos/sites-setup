@@ -186,13 +186,34 @@ class ERPSshService:
 
         return full_log
 
-    def backup_site(self, assigned_site):
-        """Backup an ERPNext site"""
+    def backup_site(self, assigned_site, domain_name=None):
+        """
+        Backup an ERPNext site with optional domain name in the backup filename.
+
+        Args:
+            assigned_site: The site to backup (e.g., erp105.havano.cloud)
+            domain_name: Optional domain being removed, will be included in backup filename
+        """
         bench_dir = self.config["bench_dir"]
 
+        # Generate timestamp for unique backup name
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Create a descriptive backup directory name
+        if domain_name:
+            # Clean the domain name for use in directory name
+            clean_domain = domain_name.replace(".", "_").replace("-", "_")
+            backup_dir = f"unassign_{clean_domain}_{timestamp}"
+        else:
+            backup_dir = f"backup_{timestamp}"
+
+        # Create backup directory and run backup with custom path
         command = (
             f"cd {self._escape_shell(bench_dir)} && "
-            f"bench --site {self._escape_shell(assigned_site)} backup --with-files"
+            f"mkdir -p sites/{self._escape_shell(assigned_site)}/private/backups/{self._escape_shell(backup_dir)} && "
+            f"bench --site {self._escape_shell(assigned_site)} backup --with-files "
+            f"--backup-path sites/{self._escape_shell(assigned_site)}/private/backups/{self._escape_shell(backup_dir)}"
         )
 
         result = self.execute_command(command)
@@ -202,7 +223,12 @@ class ERPSshService:
                 f"Backup failed with exit code {result['exit_code']}: {result['stderr']}"
             )
 
-        full_log = f"COMMAND: {command}\n\n"
+        full_log = f"BACKUP INFO:\n"
+        full_log += f"Site: {assigned_site}\n"
+        if domain_name:
+            full_log += f"Domain being removed: {domain_name}\n"
+        full_log += f"Backup directory: sites/{assigned_site}/private/backups/{backup_dir}\n\n"
+        full_log += f"COMMAND: {command}\n\n"
         full_log += f"STDOUT:\n{result['output']}\n\n"
         if result["stderr"]:
             full_log += f"STDERR:\n{result['stderr']}\n"

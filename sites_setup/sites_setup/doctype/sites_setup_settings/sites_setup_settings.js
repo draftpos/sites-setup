@@ -83,30 +83,37 @@ frappe.ui.form.on('Sites Setup Settings', {
                                 </div>
                             </div>
                             <div class="col-sm-4">
-                                <div class="stat-box text-center" style="padding: 20px; background: #e8f5e9; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                                    <div style="font-size: 36px; font-weight: bold; color: #4caf50;">${stats.assigned_count}</div>
-                                    <div style="font-size: 14px; color: #888;">Assigned</div>
-                                    <div style="font-size: 11px; color: #aaa; margin-top: 5px;">
-                                        <a href="/app/site-provisioning?status=Success">View List</a>
+                                <a href="/app/available-site?status=Assigned" style="text-decoration: none;">
+                                    <div class="stat-box text-center" style="padding: 20px; background: #e8f5e9; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer;">
+                                        <div style="font-size: 36px; font-weight: bold; color: #4caf50;">${stats.assigned_count}</div>
+                                        <div style="font-size: 14px; color: #888;">Assigned</div>
+                                        <div style="font-size: 11px; color: #4caf50; margin-top: 5px;">
+                                            Click to view
+                                        </div>
                                     </div>
-                                </div>
+                                </a>
                             </div>
                             <div class="col-sm-4">
-                                <div class="stat-box text-center" style="padding: 20px; background: #fff3e0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                                    <div style="font-size: 36px; font-weight: bold; color: #ff9800;">${stats.unassigned_count}</div>
-                                    <div style="font-size: 14px; color: #888;">Available</div>
-                                    <div style="font-size: 11px; color: #aaa; margin-top: 5px;">
-                                        <a href="#" onclick="frappe.sites_setup.show_unassigned_sites(); return false;">View Available Sites</a>
+                                <a href="/app/available-site?status=Available" style="text-decoration: none;">
+                                    <div class="stat-box text-center" style="padding: 20px; background: #fff3e0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer;">
+                                        <div style="font-size: 36px; font-weight: bold; color: #ff9800;">${stats.unassigned_count}</div>
+                                        <div style="font-size: 14px; color: #888;">Available</div>
+                                        <div style="font-size: 11px; color: #ff9800; margin-top: 5px;">
+                                            Click to view
+                                        </div>
                                     </div>
-                                </div>
+                                </a>
                             </div>
                         </div>
                         <div class="text-center" style="margin-top: 10px;">
-                            <a href="/app/site-provisioning/new-site-provisioning-1" class="btn btn-primary btn-sm">
+                            <a href="/app/site-provisioning/new" class="btn btn-primary btn-sm">
                                 + New Site Provisioning
                             </a>
                             <a href="/app/site-provisioning" class="btn btn-default btn-sm" style="margin-left: 10px;">
                                 View All Provisioning
+                            </a>
+                            <a href="/app/available-site" class="btn btn-default btn-sm" style="margin-left: 10px;">
+                                View All Sites
                             </a>
                         </div>
                     `;
@@ -116,40 +123,3 @@ frappe.ui.form.on('Sites Setup Settings', {
         });
     }
 });
-
-// Global namespace for sites_setup functions
-frappe.sites_setup = frappe.sites_setup || {};
-
-frappe.sites_setup.show_unassigned_sites = function() {
-    frappe.call({
-        method: 'sites_setup.api.get_unassigned_sites',
-        callback: function(r) {
-            if (r.message && r.message.length > 0) {
-                let html = '<div style="max-height: 400px; overflow-y: auto;">';
-                html += '<table class="table table-bordered table-hover">';
-                html += '<thead><tr><th>#</th><th>Site Name</th></tr></thead>';
-                html += '<tbody>';
-                r.message.forEach(function(site, index) {
-                    html += `<tr>
-                        <td>${index + 1}</td>
-                        <td><code>${site}</code></td>
-                    </tr>`;
-                });
-                html += '</tbody></table></div>';
-                html += `<p class="text-muted" style="margin-top: 10px;">Total: ${r.message.length} sites available for assignment</p>`;
-
-                frappe.msgprint({
-                    title: __('Available (Unassigned) Sites'),
-                    message: html,
-                    indicator: 'orange'
-                });
-            } else {
-                frappe.msgprint({
-                    title: __('No Sites Available'),
-                    message: __('All sites in the pool have been assigned.'),
-                    indicator: 'red'
-                });
-            }
-        }
-    });
-};

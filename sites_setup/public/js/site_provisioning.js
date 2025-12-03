@@ -1,7 +1,7 @@
 frappe.ui.form.on('Site Provisioning', {
     onload: function(frm) {
         // Load site options for admin site selection
-        if (frm.is_new() && frappe.user_roles.includes('System Manager')) {
+        if (frappe.user_roles.includes('System Manager')) {
             frm.trigger('load_site_options');
         }
     },
@@ -11,16 +11,32 @@ frappe.ui.form.on('Site Provisioning', {
         frappe.call({
             method: 'sites_setup.api.get_unassigned_sites',
             callback: function(r) {
+                let options = [''];
                 if (r.message && r.message.length > 0) {
-                    let options = [''].concat(r.message);
-                    frm.set_df_property('assigned_site', 'options', options.join('\n'));
-                    frm.set_df_property('assigned_site', 'description',
-                        `<span class="text-info">${r.message.length} sites available. Leave empty for auto-assignment.</span>`);
-                } else {
-                    frm.set_df_property('assigned_site', 'options', '');
-                    frm.set_df_property('assigned_site', 'description',
-                        '<span class="text-danger">No sites available!</span>');
+                    options = options.concat(r.message);
                 }
+
+                // For existing records, make sure current assigned_site is in options
+                if (!frm.is_new() && frm.doc.assigned_site) {
+                    if (!options.includes(frm.doc.assigned_site)) {
+                        options.push(frm.doc.assigned_site);
+                    }
+                }
+
+                frm.set_df_property('assigned_site', 'options', options.join('\n'));
+
+                if (frm.is_new()) {
+                    if (r.message && r.message.length > 0) {
+                        frm.set_df_property('assigned_site', 'description',
+                            `<span class="text-info">${r.message.length} sites available. Leave empty for auto-assignment.</span>`);
+                    } else {
+                        frm.set_df_property('assigned_site', 'description',
+                            '<span class="text-danger">No sites available!</span>');
+                    }
+                }
+
+                // Refresh the field to show the value
+                frm.refresh_field('assigned_site');
             }
         });
     },

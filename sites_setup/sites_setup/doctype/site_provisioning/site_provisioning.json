@@ -49,6 +49,7 @@
    "label": "Requested Subdomain",
    "reqd": 1,
    "unique": 1,
+   "read_only_depends_on": "eval:!doc.__islocal",
    "description": "Enter subdomain only (e.g., 'mycompany'). It will become mycompany.havano.cloud. Leave empty to auto-generate from company name."
   },
   {
@@ -63,6 +64,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Assigned Site",
+   "read_only_depends_on": "eval:!doc.__islocal",
    "description": "Select a specific site or leave empty for auto-assignment. Only System Managers can select manually."
   },
   {
@@ -242,12 +244,7 @@
   }
  ],
  "index_web_pages_for_search": 1,
- "links": [
-  {
-   "link_doctype": "Sites Setup Settings",
-   "link_fieldname": "name"
-  }
- ],
+ "links": [],
  "modified": "2024-12-01 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Sites Setup",

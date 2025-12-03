@@ -18,14 +18,14 @@ frappe.listview_settings['Site Provisioning'] = {
     onload: function(listview) {
         // Add custom buttons for System Managers
         if (frappe.user_roles.includes('System Manager')) {
-            // Settings button
+            // Settings button (Single DocType - must use specific name)
             listview.page.add_inner_button(__('Settings'), function() {
-                frappe.set_route('Form', 'Sites Setup Settings');
+                frappe.set_route('Form', 'Sites Setup Settings', 'Sites Setup Settings');
             });
 
-            // View Unassigned Sites button
+            // View Available Sites button - links to Available Site list
             listview.page.add_inner_button(__('Available Sites'), function() {
-                frappe.sites_setup.show_unassigned_sites();
+                frappe.set_route('List', 'Available Site', {'status': 'Available'});
             });
 
             // Server Summary button
@@ -79,7 +79,7 @@ frappe.listview_settings['Site Provisioning'] = {
                                 </div>
                                 <div style="display: flex; justify-content: space-between;">
                                     <span>Available:</span>
-                                    <strong style="color: #ff9800;">${stats.unassigned_count}</strong>
+                                    <a href="/app/available-site?status=Available" style="color: #ff9800; font-weight: bold;">${stats.unassigned_count}</a>
                                 </div>
                             </div>
                         `;
@@ -101,41 +101,4 @@ frappe.listview_settings['Site Provisioning'] = {
             return value || '';
         }
     }
-};
-
-// Global namespace for sites_setup functions
-frappe.sites_setup = frappe.sites_setup || {};
-
-frappe.sites_setup.show_unassigned_sites = function() {
-    frappe.call({
-        method: 'sites_setup.api.get_unassigned_sites',
-        callback: function(r) {
-            if (r.message && r.message.length > 0) {
-                let html = '<div style="max-height: 400px; overflow-y: auto;">';
-                html += '<table class="table table-bordered table-hover">';
-                html += '<thead><tr><th>#</th><th>Site Name</th></tr></thead>';
-                html += '<tbody>';
-                r.message.forEach(function(site, index) {
-                    html += `<tr>
-                        <td>${index + 1}</td>
-                        <td><code>${site}</code></td>
-                    </tr>`;
-                });
-                html += '</tbody></table></div>';
-                html += `<p class="text-muted" style="margin-top: 10px;">Total: ${r.message.length} sites available for assignment</p>`;
-
-                frappe.msgprint({
-                    title: __('Available (Unassigned) Sites'),
-                    message: html,
-                    indicator: 'orange'
-                });
-            } else {
-                frappe.msgprint({
-                    title: __('No Sites Available'),
-                    message: __('All sites in the pool have been assigned.'),
-                    indicator: 'red'
-                });
-            }
-        }
-    });
 };
