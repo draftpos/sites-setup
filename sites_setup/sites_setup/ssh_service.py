@@ -248,65 +248,81 @@ class ERPSshService:
         return full_log
 
     def update_admin_user(self, assigned_site, user_details):
-        """Update the Administrator user details on the remote site using a Python script"""
+        """Update the Administrator user details and company on the remote site using bench console"""
         bench_dir = self.config["bench_dir"]
 
         # Check if there's anything to update
-        first_name = user_details.get("first_name", "").replace("'", "\\'")
-        middle_name = user_details.get("middle_name", "").replace("'", "\\'")
-        last_name = user_details.get("last_name", "").replace("'", "\\'")
-        phone = user_details.get("phone", "").replace("'", "\\'")
+        first_name = user_details.get("first_name", "") or ""
+        middle_name = user_details.get("middle_name", "") or ""
+        last_name = user_details.get("last_name", "") or ""
+        phone = user_details.get("phone", "") or ""
+        email = user_details.get("email", "") or ""
+        company_name = user_details.get("company_name", "") or ""
 
-        if not any([first_name, middle_name, last_name, phone]):
-            return "No user details to update"
+        if not any([first_name, middle_name, last_name, phone, email, company_name]):
+            return "No user/company details to update"
 
-        # Create a Python script to update the user
-        script_content = f"""#!/usr/bin/env python3
-import frappe
+        # Create a Python script file on the server
+        script_content = f'''
+first_name = "{first_name}"
+middle_name = "{middle_name}"
+last_name = "{last_name}"
+phone = "{phone}"
+email = "{email}"
+company_name = "{company_name}"
 
-frappe.init(site='{assigned_site}')
-frappe.connect()
+# Update Administrator user details
+user_updates = {{}}
+if first_name:
+    user_updates["first_name"] = first_name
+if middle_name:
+    user_updates["middle_name"] = middle_name
+if last_name:
+    user_updates["last_name"] = last_name
+if phone:
+    user_updates["phone"] = phone
+if email:
+    user_updates["email"] = email
 
-try:
-    updates = {{}}
-    if '{first_name}':
-        updates['first_name'] = '{first_name}'
-    if '{middle_name}':
-        updates['middle_name'] = '{middle_name}'
-    if '{last_name}':
-        updates['last_name'] = '{last_name}'
-    if '{phone}':
-        updates['phone'] = '{phone}'
+if user_updates:
+    frappe.db.set_value("User", "Administrator", user_updates)
+    frappe.db.commit()
+    print(f"SUCCESS: Administrator user updated")
+    print(f"Updated user fields: {{list(user_updates.keys())}}")
+else:
+    print("No user fields to update")
 
-    if updates:
-        frappe.db.set_value('User', 'Administrator', updates)
+# Update Company name if provided
+if company_name:
+    # Get the first company (default company)
+    companies = frappe.get_all("Company", limit=1)
+    if companies:
+        company_doc = companies[0].name
+        frappe.db.set_value("Company", company_doc, "company_name", company_name)
         frappe.db.commit()
-        print('Administrator user updated successfully')
-        print(f'Updated fields: {{list(updates.keys())}}')
+        print(f"SUCCESS: Company '{{company_doc}}' renamed to '{{company_name}}'")
     else:
-        print('No fields to update')
-except Exception as e:
-    print(f'Error: {{str(e)}}')
-    raise
-finally:
-    frappe.destroy()
-"""
+        print("No company found to update")
+'''
 
-        # Write script to temp file, execute it, then clean up
+        # Write script to file and execute via bench console (like your setup wizard)
         script_path = f"/tmp/update_admin_{assigned_site.replace('.', '_')}.py"
 
         command = (
             f"cat > {script_path} << 'SCRIPT_EOF'\n{script_content}\nSCRIPT_EOF\n"
             f"cd {self._escape_shell(bench_dir)} && "
-            f"../env/bin/python {script_path} && "
+            f"bench --site {self._escape_shell(assigned_site)} console << EOF\n"
+            f"exec(open(\"{script_path}\").read())\n"
+            f"EOF\n"
             f"rm -f {script_path}"
         )
 
         result = self.execute_command(command)
 
-        full_log = f"COMMAND: Update Administrator user details\n"
+        full_log = f"COMMAND: Update Administrator user and company details\n"
         full_log += f"Site: {assigned_site}\n"
-        full_log += f"Fields: first_name={first_name}, last_name={last_name}, phone={phone}\n\n"
+        full_log += f"User Fields: first_name={first_name}, last_name={last_name}, phone={phone}, email={email}\n"
+        full_log += f"Company: {company_name}\n\n"
         full_log += f"STDOUT:\n{result['output']}\n\n"
         if result["stderr"]:
             full_log += f"STDERR:\n{result['stderr']}\n"

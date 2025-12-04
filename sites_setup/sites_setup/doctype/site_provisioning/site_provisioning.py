@@ -365,24 +365,39 @@ def run_provisioning(provisioning_name, admin_password):
             _send_failure_email(provisioning)
             return
 
-        # Step 3: Update admin user details on the remote site (if provided)
-        if provisioning.first_name or provisioning.company_name:
+        # Step 3: Update admin user and company details on the remote site (if provided)
+        user_details = {
+            "first_name": provisioning.first_name,
+            "middle_name": provisioning.middle_name,
+            "last_name": provisioning.last_name,
+            "phone": provisioning.phone,
+            "email": provisioning.email,
+            "company_name": provisioning.company_name,
+        }
+        has_user_details = any([provisioning.first_name, provisioning.middle_name, provisioning.last_name, provisioning.phone, provisioning.email, provisioning.company_name])
+
+        if has_user_details:
             try:
+                frappe.logger().info(f"Updating admin user details for {provisioning.assigned_site}: {user_details}")
                 user_update_log = service.update_admin_user(
                     provisioning.assigned_site,
-                    {
-                        "first_name": provisioning.first_name,
-                        "middle_name": provisioning.middle_name,
-                        "last_name": provisioning.last_name,
-                        "phone": provisioning.phone,
-                    }
+                    user_details
                 )
-                provisioning.bench_log = (provisioning.bench_log or "") + "\n\n" + user_update_log
+                provisioning.bench_log = (provisioning.bench_log or "") + "\n\n=== ADMIN USER UPDATE ===\n" + user_update_log
                 provisioning.save(ignore_permissions=True)
                 frappe.db.commit()
+                frappe.logger().info(f"Admin user details updated for {provisioning.assigned_site}")
             except Exception as e:
-                # Non-fatal error, just log it
-                frappe.logger().warning(f"Failed to update admin user details: {str(e)}")
+                # Non-fatal error, log it and add to bench_log
+                error_msg = f"Failed to update admin user details: {str(e)}"
+                frappe.logger().warning(error_msg)
+                provisioning.bench_log = (provisioning.bench_log or "") + f"\n\n=== ADMIN USER UPDATE FAILED ===\n{error_msg}"
+                provisioning.save(ignore_permissions=True)
+                frappe.db.commit()
+        else:
+            provisioning.bench_log = (provisioning.bench_log or "") + "\n\n=== ADMIN USER UPDATE ===\nNo user details provided, skipping update."
+            provisioning.save(ignore_permissions=True)
+            frappe.db.commit()
 
         service.disconnect()
 
