@@ -22,6 +22,11 @@
   "column_break_site",
   "site_min",
   "site_max",
+  "hostinger_section",
+  "hostinger_token",
+  "hostinger_domain",
+  "column_break_hostinger",
+  "server_ip",
   "rate_limit_section",
   "rate_limit_requests",
   "rate_limit_window_minutes"
@@ -136,6 +141,33 @@
    "label": "Site Range Max",
    "reqd": 1,
    "description": "Maximum site number (e.g., 200 for erp200)"
+  },
+  {
+   "fieldname": "hostinger_section",
+   "fieldtype": "Section Break",
+   "label": "Hostinger DNS Configuration"
+  },
+  {
+   "fieldname": "hostinger_token",
+   "fieldtype": "Password",
+   "label": "Hostinger API Token",
+   "description": "API token from Hostinger for DNS management"
+  },
+  {
+   "fieldname": "hostinger_domain",
+   "fieldtype": "Data",
+   "label": "Hostinger Domain",
+   "description": "Domain managed in Hostinger (e.g., havano.co.za)"
+  },
+  {
+   "fieldname": "column_break_hostinger",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "server_ip",
+   "fieldtype": "Data",
+   "label": "Server IP",
+   "description": "IP address of the ERP server for DNS A records"
   },
   {
    "fieldname": "rate_limit_section",

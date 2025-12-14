@@ -2,6 +2,7 @@ import frappe
 from frappe import _
 import paramiko
 import socket
+import requests
 
 
 class ERPSshService:
@@ -23,6 +24,9 @@ class ERPSshService:
             "bench_dir": settings.bench_directory,
             "ssl_fullchain": settings.ssl_fullchain_path,
             "ssl_privkey": settings.ssl_privkey_path,
+            "hostinger_token": settings.get_password("hostinger_token") if settings.hostinger_token else None,
+            "hostinger_domain": settings.hostinger_domain,
+            "server_ip": settings.server_ip,
         }
 
     def connect(self):
@@ -94,11 +98,19 @@ class ERPSshService:
         Provision a new ERP site with domain and SSL.
 
         Steps:
-        1. Add domain to the site with SSL
-        2. Regenerate nginx config
-        3. Reload nginx
-        4. Set admin password
+        1. Create DNS record in Hostinger
+        2. Add domain to the site with SSL
+        3. Regenerate nginx config
+        4. Reload nginx
+        5. Set admin password
         """
+        # First, create DNS record in Hostinger
+        dns_result = self.create_hostinger_dns_record(subdomain)
+        dns_log = f"DNS SETUP:\n{dns_result['message']}\n\n"
+
+        if not dns_result.get("success") and not dns_result.get("skipped"):
+            frappe.logger().warning(f"DNS creation failed but continuing: {dns_result['message']}")
+
         bench_dir = self.config["bench_dir"]
         fullchain = self.config["ssl_fullchain"]
         privkey = self.config["ssl_privkey"]
@@ -123,7 +135,8 @@ class ERPSshService:
             )
 
         # Build full log
-        full_log = f"COMMAND: {command}\n\n"
+        full_log = dns_log
+        full_log += f"COMMAND: {command}\n\n"
         full_log += f"STDOUT:\n{result['output']}\n\n"
         if result["stderr"]:
             full_log += f"STDERR:\n{result['stderr']}\n"
@@ -131,8 +144,92 @@ class ERPSshService:
 
         return full_log
 
+    def create_hostinger_dns_record(self, subdomain):
+        """
+        Create DNS A record in Hostinger for the subdomain.
+
+        Args:
+            subdomain: Full subdomain (e.g., mysite.havano.co.za)
+
+        Returns:
+            dict with success status and message
+        """
+        hostinger_token = self.config.get("hostinger_token")
+        hostinger_domain = self.config.get("hostinger_domain")
+        server_ip = self.config.get("server_ip")
+
+        if not all([hostinger_token, hostinger_domain, server_ip]):
+            frappe.logger().warning("Hostinger DNS not configured, skipping DNS creation")
+            return {
+                "success": False,
+                "message": "Hostinger DNS not configured (missing token, domain, or server IP)",
+                "skipped": True
+            }
+
+        # Extract the subdomain part (e.g., "mysite" from "mysite.havano.co.za")
+        if subdomain.endswith(f".{hostinger_domain}"):
+            sub = subdomain[:-len(f".{hostinger_domain}")]
+        else:
+            sub = subdomain.split(".")[0]
+
+        api_url = f"https://developers.hostinger.com/api/dns/v1/zones/{hostinger_domain}"
+
+        headers = {
+            "Authorization": f"Bearer {hostinger_token}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "zone": [
+                {
+                    "name": sub,
+                    "records": [
+                        {"content": server_ip}
+                    ],
+                    "type": "A",
+                    "ttl": 300
+                }
+            ],
+            "overwrite": True
+        }
+
+        try:
+            frappe.logger().info(f"Creating Hostinger DNS record: {sub}.{hostinger_domain} -> {server_ip}")
+
+            response = requests.put(api_url, headers=headers, json=payload, timeout=30)
+
+            if response.status_code in [200, 201, 204]:
+                frappe.logger().info(f"Hostinger DNS record created successfully for {subdomain}")
+                return {
+                    "success": True,
+                    "message": f"DNS record created: {sub}.{hostinger_domain} -> {server_ip}"
+                }
+            else:
+                error_msg = f"Hostinger API returned {response.status_code}: {response.text}"
+                frappe.logger().error(error_msg)
+                return {
+                    "success": False,
+                    "message": error_msg
+                }
+
+        except requests.exceptions.Timeout:
+            error_msg = "Hostinger API request timed out"
+            frappe.logger().error(error_msg)
+            return {"success": False, "message": error_msg}
+        except requests.exceptions.RequestException as e:
+            error_msg = f"Hostinger API request failed: {str(e)}"
+            frappe.logger().error(error_msg)
+            return {"success": False, "message": error_msg}
+
     def add_domain_to_site(self, subdomain, assigned_site):
         """Add a new domain to an existing ERPNext site (without setting password)"""
+        # First, create DNS record in Hostinger
+        dns_result = self.create_hostinger_dns_record(subdomain)
+        dns_log = f"DNS SETUP:\n{dns_result['message']}\n\n"
+
+        if not dns_result.get("success") and not dns_result.get("skipped"):
+            frappe.logger().warning(f"DNS creation failed but continuing: {dns_result['message']}")
+
         bench_dir = self.config["bench_dir"]
         fullchain = self.config["ssl_fullchain"]
         privkey = self.config["ssl_privkey"]
@@ -154,7 +251,8 @@ class ERPSshService:
                 f"Add domain failed with exit code {result['exit_code']}: {result['stderr']}"
             )
 
-        full_log = f"COMMAND: {command}\n\n"
+        full_log = dns_log
+        full_log += f"COMMAND: {command}\n\n"
         full_log += f"STDOUT:\n{result['output']}\n\n"
         if result["stderr"]:
             full_log += f"STDERR:\n{result['stderr']}\n"
