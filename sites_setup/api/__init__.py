@@ -362,6 +362,55 @@ def test_ssh_connection():
     return result
 
 
+@frappe.whitelist()
+def run_site_migrate(provisioning_id):
+    """
+    Run bench migrate on a provisioned site.
+    Available to site owner and System Managers.
+    Runs asynchronously as a background job.
+
+    Args:
+        provisioning_id: The ID of the provisioning request
+
+    Returns:
+        dict: Contains message about the operation
+    """
+    provisioning = frappe.get_doc("Site Provisioning", provisioning_id)
+
+    # Check permissions
+    if (
+        provisioning.requested_by != frappe.session.user
+        and "System Manager" not in frappe.get_roles()
+    ):
+        frappe.throw(_("You don't have permission to run migrate on this site"), frappe.PermissionError)
+
+    # Only allow for successful provisionings
+    if provisioning.status != "Success":
+        frappe.throw(_("Migrate can only be run on successfully provisioned sites"), frappe.ValidationError)
+
+    # Check if app operation is running
+    if provisioning.app_operation_status == "Running":
+        frappe.throw(_("Cannot run migrate while an app operation is in progress"), frappe.ValidationError)
+
+    # Enqueue background job
+    frappe.enqueue(
+        "sites_setup.sites_setup.doctype.site_provisioning.site_provisioning.run_migrate_job",
+        queue="long",
+        timeout=600,
+        provisioning_name=provisioning_id,
+    )
+
+    # Update status to show migration is running
+    provisioning.db_set("app_operation_status", "Running")
+    provisioning.db_set("app_operation_log", "Starting bench migrate...")
+    frappe.db.commit()
+
+    return {
+        "success": True,
+        "message": _("Migration started. This may take several minutes."),
+    }
+
+
 # Public Registration API (no login required)
 @frappe.whitelist(allow_guest=True)
 def register(
@@ -463,6 +512,182 @@ def register(
         "requested_subdomain": provisioning.requested_subdomain,
         "assigned_site": provisioning.assigned_site,
         "message": _("Registration successful! Your site is being provisioned. Site URL: {0}").format(site_url),
+    }
+
+
+@frappe.whitelist()
+def get_bench_apps():
+    """
+    Get all apps available in the bench.
+    Only available to System Managers.
+
+    Returns:
+        dict: Contains list of app names available in the bench
+    """
+    if "System Manager" not in frappe.get_roles():
+        frappe.throw(_("Only System Managers can view bench apps"), frappe.PermissionError)
+
+    from sites_setup.sites_setup.ssh_service import ERPSshService
+
+    service = ERPSshService()
+    try:
+        result = service.get_bench_apps()
+        return result
+    finally:
+        service.disconnect()
+
+
+@frappe.whitelist()
+def get_site_apps(provisioning_id):
+    """
+    Get apps installed on a provisioned site.
+    Available to site owner and System Managers.
+
+    Args:
+        provisioning_id: The ID of the provisioning request
+
+    Returns:
+        dict: Contains list of installed apps and list of available apps
+    """
+    provisioning = frappe.get_doc("Site Provisioning", provisioning_id)
+
+    # Check permissions - user can only see their own provisionings unless System Manager
+    if (
+        provisioning.requested_by != frappe.session.user
+        and "System Manager" not in frappe.get_roles()
+    ):
+        frappe.throw(_("You don't have permission to view this site's apps"), frappe.PermissionError)
+
+    # Only allow for successful provisionings
+    if provisioning.status != "Success":
+        frappe.throw(_("Apps can only be managed for successfully provisioned sites"), frappe.ValidationError)
+
+    # Check if app operation is running
+    if provisioning.app_operation_status == "Running":
+        frappe.throw(_("An app operation is currently in progress"), frappe.ValidationError)
+
+    from sites_setup.sites_setup.ssh_service import ERPSshService
+
+    service = ERPSshService()
+    try:
+        # Get installed apps on the site
+        site_result = service.get_site_apps(provisioning.assigned_site)
+        installed_apps = site_result.get("apps", [])
+
+        # Get all available apps in the bench
+        bench_result = service.get_bench_apps()
+        available_apps = bench_result.get("apps", [])
+
+        return {
+            "success": True,
+            "installed_apps": installed_apps,
+            "available_apps": available_apps,
+            "app_operation_status": provisioning.app_operation_status or "Idle"
+        }
+    finally:
+        service.disconnect()
+
+
+@frappe.whitelist()
+def manage_site_apps(provisioning_id, apps_to_install=None, apps_to_uninstall=None):
+    """
+    Install or uninstall apps on a provisioned site.
+    Available to site owner and System Managers.
+    Runs asynchronously as a background job.
+
+    Args:
+        provisioning_id: The ID of the provisioning request
+        apps_to_install: JSON list of app names to install
+        apps_to_uninstall: JSON list of app names to uninstall
+
+    Returns:
+        dict: Contains message about the operation
+    """
+    import json
+
+    provisioning = frappe.get_doc("Site Provisioning", provisioning_id)
+
+    # Check permissions
+    if (
+        provisioning.requested_by != frappe.session.user
+        and "System Manager" not in frappe.get_roles()
+    ):
+        frappe.throw(_("You don't have permission to manage this site's apps"), frappe.PermissionError)
+
+    # Only allow for successful provisionings
+    if provisioning.status != "Success":
+        frappe.throw(_("Apps can only be managed for successfully provisioned sites"), frappe.ValidationError)
+
+    # Check if app operation is already running
+    if provisioning.app_operation_status == "Running":
+        frappe.throw(_("An app operation is already in progress. Please wait for it to complete."), frappe.ValidationError)
+
+    # Parse JSON if strings provided
+    if isinstance(apps_to_install, str):
+        apps_to_install = json.loads(apps_to_install) if apps_to_install else []
+    if isinstance(apps_to_uninstall, str):
+        apps_to_uninstall = json.loads(apps_to_uninstall) if apps_to_uninstall else []
+
+    apps_to_install = apps_to_install or []
+    apps_to_uninstall = apps_to_uninstall or []
+
+    # Validate - cannot uninstall core apps
+    core_apps = ["frappe", "erpnext"]
+    for app in apps_to_uninstall:
+        if app in core_apps:
+            frappe.throw(_("Cannot uninstall core app: {0}").format(app), frappe.ValidationError)
+
+    if not apps_to_install and not apps_to_uninstall:
+        frappe.throw(_("No apps specified to install or uninstall"), frappe.ValidationError)
+
+    # Update status to Running
+    provisioning.db_set("app_operation_status", "Running")
+    provisioning.db_set("app_operation_log", "")
+    frappe.db.commit()
+
+    # Enqueue background job
+    frappe.enqueue(
+        "sites_setup.sites_setup.doctype.site_provisioning.site_provisioning.run_app_management",
+        queue="long",
+        timeout=600 * max(len(apps_to_install) + len(apps_to_uninstall), 1),  # 10 min per app
+        provisioning_name=provisioning_id,
+        apps_to_install=apps_to_install,
+        apps_to_uninstall=apps_to_uninstall,
+    )
+
+    return {
+        "success": True,
+        "message": _("App management started. Installing {0} app(s), uninstalling {1} app(s).").format(
+            len(apps_to_install), len(apps_to_uninstall)
+        ),
+        "apps_to_install": apps_to_install,
+        "apps_to_uninstall": apps_to_uninstall,
+    }
+
+
+@frappe.whitelist()
+def get_app_operation_status(provisioning_id):
+    """
+    Get the current app operation status for a provisioned site.
+
+    Args:
+        provisioning_id: The ID of the provisioning request
+
+    Returns:
+        dict: Contains app_operation_status and app_operation_log
+    """
+    provisioning = frappe.get_doc("Site Provisioning", provisioning_id)
+
+    # Check permissions
+    if (
+        provisioning.requested_by != frappe.session.user
+        and "System Manager" not in frappe.get_roles()
+    ):
+        frappe.throw(_("You don't have permission to view this site"), frappe.PermissionError)
+
+    return {
+        "app_operation_status": provisioning.app_operation_status or "Idle",
+        "app_operation_log": provisioning.app_operation_log or "",
     }
 
 

@@ -54,9 +54,16 @@ frappe.ui.form.on('Site Provisioning', {
                 </div>`
             );
 
-            // Add unassign button for System Managers
+            // Check if app operation is running
+            let app_operation_running = frm.doc.app_operation_status === 'Running';
+
+            // Add unassign button for System Managers (disabled if app operation running)
             if (frappe.user_roles.includes('System Manager') && !frm.doc.is_unassigned) {
-                frm.add_custom_button(__('Unassign Site'), function() {
+                let unassign_btn = frm.add_custom_button(__('Unassign Site'), function() {
+                    if (app_operation_running) {
+                        frappe.msgprint(__('Cannot unassign site while app operation is in progress.'));
+                        return;
+                    }
                     frappe.confirm(
                         __('Are you sure you want to unassign this site? This will backup the site and remove the domain.'),
                         function() {
@@ -80,6 +87,72 @@ frappe.ui.form.on('Site Provisioning', {
                     );
                 }, __('Actions'));
             }
+
+            // Add Manage Apps button (for site owner and System Manager)
+            if (!frm.doc.is_unassigned) {
+                frm.add_custom_button(__('Manage Apps'), function() {
+                    if (app_operation_running) {
+                        frappe.msgprint(__('An app operation is currently in progress. Please wait for it to complete.'));
+                        return;
+                    }
+                    frm.trigger('show_manage_apps_dialog');
+                }, __('Actions'));
+
+                // Add Run Migrate button
+                frm.add_custom_button(__('Run Migrate'), function() {
+                    if (app_operation_running) {
+                        frappe.msgprint(__('An operation is currently in progress. Please wait for it to complete.'));
+                        return;
+                    }
+                    frappe.confirm(
+                        __('Are you sure you want to run bench migrate? This will apply any pending database migrations.'),
+                        function() {
+                            frappe.call({
+                                method: 'sites_setup.api.run_site_migrate',
+                                args: {
+                                    provisioning_id: frm.doc.name
+                                },
+                                freeze: true,
+                                freeze_message: __('Starting migration...'),
+                                callback: function(r) {
+                                    if (r.message && r.message.success) {
+                                        frappe.show_alert({
+                                            message: r.message.message,
+                                            indicator: 'blue'
+                                        });
+                                        frm.reload_doc();
+                                    }
+                                },
+                                error: function() {
+                                    frappe.msgprint({
+                                        title: __('Error'),
+                                        message: __('Failed to start migration. Please try again.'),
+                                        indicator: 'red'
+                                    });
+                                }
+                            });
+                        }
+                    );
+                }, __('Actions'));
+            }
+
+            // Show app operation status if running
+            if (app_operation_running) {
+                frm.dashboard.add_comment(
+                    __('App operation in progress... Page will auto-refresh.'),
+                    'blue',
+                    true
+                );
+                // Auto-refresh while app operation is running
+                setTimeout(function() {
+                    frm.reload_doc();
+                }, 5000);
+            }
+
+            // Show installed apps section
+            if (!frm.doc.is_unassigned && !app_operation_running) {
+                frm.trigger('load_installed_apps');
+            }
         } else if (frm.doc.status === 'Unassigned') {
             frm.dashboard.set_headline_alert(
                 `<div class="alert alert-warning">
@@ -95,8 +168,13 @@ frappe.ui.form.on('Site Provisioning', {
                 </div>`
             );
 
-            // Add retry button for failed provisioning
+            // Add retry button for failed provisioning (disabled if app operation running)
+            let app_op_running_failed = frm.doc.app_operation_status === 'Running';
             frm.add_custom_button(__('Retry Provisioning'), function() {
+                if (app_op_running_failed) {
+                    frappe.msgprint(__('Cannot retry while app operation is in progress.'));
+                    return;
+                }
                 frappe.confirm(
                     __('Are you sure you want to retry provisioning?'),
                     function() {
@@ -312,5 +390,186 @@ frappe.ui.form.on('Site Provisioning', {
                 });
             }
         }
+    },
+
+    load_installed_apps: function(frm) {
+        // Load and display installed apps for this site
+        frappe.call({
+            method: 'sites_setup.api.get_site_apps',
+            args: {
+                provisioning_id: frm.doc.name
+            },
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    let installed = r.message.installed_apps || [];
+                    let status = r.message.app_operation_status || 'Idle';
+
+                    // Build HTML for installed apps display
+                    let apps_html = '<div class="installed-apps-container" style="margin-top: 10px;">';
+                    apps_html += '<strong>' + __('Installed Apps') + ':</strong><br>';
+
+                    if (installed.length > 0) {
+                        apps_html += '<div style="margin-top: 5px;">';
+                        installed.forEach(function(app) {
+                            let badge_class = (app === 'frappe' || app === 'erpnext') ? 'badge-primary' : 'badge-success';
+                            let core_label = (app === 'frappe' || app === 'erpnext') ? ' (core)' : '';
+                            apps_html += `<span class="badge ${badge_class}" style="margin: 2px; padding: 5px 10px;">${app}${core_label}</span>`;
+                        });
+                        apps_html += '</div>';
+                    } else {
+                        apps_html += '<span class="text-muted">' + __('No apps installed') + '</span>';
+                    }
+
+                    // Show operation status if not idle
+                    if (status && status !== 'Idle') {
+                        let status_class = status === 'Completed' ? 'text-success' : (status === 'Failed' ? 'text-danger' : 'text-info');
+                        apps_html += `<br><small class="${status_class}"><strong>${__('Last Operation')}:</strong> ${status}</small>`;
+                    }
+
+                    apps_html += '</div>';
+
+                    frm.set_df_property('section_break_apps', 'description', apps_html);
+                    frm.refresh_field('section_break_apps');
+                }
+            }
+        });
+    },
+
+    show_manage_apps_dialog: function(frm) {
+        // Fetch available and installed apps, then show dialog
+        frappe.call({
+            method: 'sites_setup.api.get_site_apps',
+            args: {
+                provisioning_id: frm.doc.name
+            },
+            freeze: true,
+            freeze_message: __('Loading apps...'),
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    let installed_apps = r.message.installed_apps || [];
+                    let available_apps = r.message.available_apps || [];
+                    let core_apps = ['frappe', 'erpnext'];
+
+                    // Build the dialog fields
+                    let fields = [
+                        {
+                            fieldtype: 'HTML',
+                            fieldname: 'apps_info',
+                            options: `<p class="text-muted">${__('Check apps to install, uncheck to uninstall. Core apps (frappe, erpnext) cannot be uninstalled.')}</p>`
+                        }
+                    ];
+
+                    // Add a checkbox for each available app
+                    available_apps.forEach(function(app) {
+                        let is_installed = installed_apps.includes(app);
+                        let is_core = core_apps.includes(app);
+
+                        fields.push({
+                            fieldtype: 'Check',
+                            fieldname: 'app_' + app,
+                            label: app + (is_core ? ' (core - required)' : ''),
+                            default: is_installed ? 1 : 0,
+                            read_only: is_core ? 1 : 0,
+                            description: is_core ? __('Core app cannot be uninstalled') : ''
+                        });
+                    });
+
+                    // Create and show the dialog
+                    let d = new frappe.ui.Dialog({
+                        title: __('Manage Apps for {0}', [frm.doc.assigned_site]),
+                        fields: fields,
+                        size: 'large',
+                        primary_action_label: __('Apply Changes'),
+                        primary_action: function() {
+                            let values = d.get_values();
+                            let apps_to_install = [];
+                            let apps_to_uninstall = [];
+
+                            // Determine what changed
+                            available_apps.forEach(function(app) {
+                                let field_name = 'app_' + app;
+                                let is_checked = values[field_name] ? true : false;
+                                let was_installed = installed_apps.includes(app);
+                                let is_core = core_apps.includes(app);
+
+                                if (!is_core) {
+                                    if (is_checked && !was_installed) {
+                                        apps_to_install.push(app);
+                                    } else if (!is_checked && was_installed) {
+                                        apps_to_uninstall.push(app);
+                                    }
+                                }
+                            });
+
+                            if (apps_to_install.length === 0 && apps_to_uninstall.length === 0) {
+                                frappe.msgprint(__('No changes to apply.'));
+                                return;
+                            }
+
+                            // Confirm the changes
+                            let confirm_msg = '';
+                            if (apps_to_install.length > 0) {
+                                confirm_msg += __('Apps to install: {0}', [apps_to_install.join(', ')]) + '<br>';
+                            }
+                            if (apps_to_uninstall.length > 0) {
+                                confirm_msg += __('Apps to uninstall: {0}', [apps_to_uninstall.join(', ')]) + '<br>';
+                            }
+                            confirm_msg += '<br><strong>' + __('This operation may take several minutes.') + '</strong>';
+
+                            frappe.confirm(
+                                confirm_msg,
+                                function() {
+                                    d.hide();
+
+                                    // Call the API to manage apps
+                                    frappe.call({
+                                        method: 'sites_setup.api.manage_site_apps',
+                                        args: {
+                                            provisioning_id: frm.doc.name,
+                                            apps_to_install: JSON.stringify(apps_to_install),
+                                            apps_to_uninstall: JSON.stringify(apps_to_uninstall)
+                                        },
+                                        freeze: true,
+                                        freeze_message: __('Starting app management...'),
+                                        callback: function(r) {
+                                            if (r.message && r.message.success) {
+                                                frappe.show_alert({
+                                                    message: r.message.message,
+                                                    indicator: 'blue'
+                                                });
+                                                // Reload the form to show progress
+                                                frm.reload_doc();
+                                            }
+                                        },
+                                        error: function(r) {
+                                            frappe.msgprint({
+                                                title: __('Error'),
+                                                message: __('Failed to start app management. Please try again.'),
+                                                indicator: 'red'
+                                            });
+                                        }
+                                    });
+                                }
+                            );
+                        }
+                    });
+
+                    d.show();
+                } else {
+                    frappe.msgprint({
+                        title: __('Error'),
+                        message: __('Failed to load apps. Please try again.'),
+                        indicator: 'red'
+                    });
+                }
+            },
+            error: function() {
+                frappe.msgprint({
+                    title: __('Error'),
+                    message: __('Failed to connect to server. Please try again.'),
+                    indicator: 'red'
+                });
+            }
+        });
     }
 });
