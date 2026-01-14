@@ -395,10 +395,21 @@ if company_name:
     # Get the first company (default company)
     companies = frappe.get_all("Company", limit=1)
     if companies:
-        company_doc = companies[0].name
-        frappe.db.set_value("Company", company_doc, "company_name", company_name)
-        frappe.db.commit()
-        print(f"SUCCESS: Company '{{company_doc}}' renamed to '{{company_name}}'")
+        old_company_name = companies[0].name
+        try:
+            # Use rename_doc to properly rename the company
+            frappe.rename_doc("Company", old_company_name, company_name, force=True)
+            frappe.db.commit()
+            print(f"SUCCESS: Company renamed from '{{old_company_name}}' to '{{company_name}}'")
+        except Exception as rename_error:
+            # If rename fails (e.g., name already exists), try updating company_name field
+            print(f"Rename failed: {{rename_error}}")
+            try:
+                frappe.db.set_value("Company", old_company_name, "company_name", company_name)
+                frappe.db.commit()
+                print(f"SUCCESS: Updated company_name field to '{{company_name}}' (document name remains '{{old_company_name}}')")
+            except Exception as update_error:
+                print(f"Failed to update company: {{update_error}}")
     else:
         print("No company found to update")
 '''
@@ -427,6 +438,214 @@ if company_name:
         full_log += f"EXIT CODE: {result['exit_code']}"
 
         return full_log
+
+    def get_bench_apps(self):
+        """
+        Get all apps available in the bench (apps/ directory).
+
+        Returns:
+            dict with success status and list of app names
+        """
+        bench_dir = self.config["bench_dir"]
+
+        command = f"ls {self._escape_shell(bench_dir)}/apps"
+
+        result = self.execute_command(command)
+
+        if result["exit_code"] != 0:
+            raise Exception(
+                f"Failed to list bench apps: {result['stderr']}"
+            )
+
+        # Parse the output - each line is an app folder name
+        apps = [app.strip() for app in result["output"].strip().split("\n") if app.strip()]
+
+        return {
+            "success": True,
+            "apps": apps
+        }
+
+    def get_site_apps(self, site_name):
+        """
+        Get apps installed on a specific site.
+
+        Args:
+            site_name: The site name (e.g., erp105.havano.cloud)
+
+        Returns:
+            dict with success status and list of installed app names
+        """
+        bench_dir = self.config["bench_dir"]
+
+        command = f"cd {self._escape_shell(bench_dir)} && bench --site {self._escape_shell(site_name)} list-apps"
+
+        result = self.execute_command(command)
+
+        if result["exit_code"] != 0:
+            raise Exception(
+                f"Failed to list site apps: {result['stderr']}"
+            )
+
+        # Parse the output - each line is an installed app name
+        apps = [app.strip() for app in result["output"].strip().split("\n") if app.strip()]
+
+        return {
+            "success": True,
+            "apps": apps
+        }
+
+    def install_app(self, site_name, app_name):
+        """
+        Install an app on a specific site.
+
+        Args:
+            site_name: The site name (e.g., erp105.havano.cloud)
+            app_name: The app to install (e.g., hrms)
+
+        Returns:
+            dict with success status and log output
+        """
+        bench_dir = self.config["bench_dir"]
+
+        command = (
+            f"cd {self._escape_shell(bench_dir)} && "
+            f"bench --site {self._escape_shell(site_name)} install-app {self._escape_shell(app_name)}"
+        )
+
+        # Use longer timeout for app installation (10 minutes)
+        ssh = self.connect()
+        frappe.logger().info(f"Executing SSH command: {command}")
+
+        stdin, stdout, stderr = ssh.exec_command(command, timeout=600)
+
+        output = stdout.read().decode("utf-8", errors="replace")
+        error = stderr.read().decode("utf-8", errors="replace")
+        exit_code = stdout.channel.recv_exit_status()
+
+        frappe.logger().info(f"SSH command exit code: {exit_code}")
+
+        full_log = f"INSTALL APP: {app_name}\n"
+        full_log += f"Site: {site_name}\n"
+        full_log += f"COMMAND: bench --site {site_name} install-app {app_name}\n\n"
+        full_log += f"STDOUT:\n{output}\n\n"
+        if error:
+            full_log += f"STDERR:\n{error}\n"
+        full_log += f"EXIT CODE: {exit_code}"
+
+        if exit_code != 0:
+            return {
+                "success": False,
+                "app": app_name,
+                "log": full_log,
+                "error": error or output
+            }
+
+        return {
+            "success": True,
+            "app": app_name,
+            "log": full_log
+        }
+
+    def uninstall_app(self, site_name, app_name):
+        """
+        Uninstall an app from a specific site.
+
+        Args:
+            site_name: The site name (e.g., erp105.havano.cloud)
+            app_name: The app to uninstall (e.g., hrms)
+
+        Returns:
+            dict with success status and log output
+        """
+        bench_dir = self.config["bench_dir"]
+
+        # Use --yes to skip confirmation prompt
+        command = (
+            f"cd {self._escape_shell(bench_dir)} && "
+            f"bench --site {self._escape_shell(site_name)} uninstall-app {self._escape_shell(app_name)} --yes"
+        )
+
+        # Use longer timeout for app uninstallation (10 minutes)
+        ssh = self.connect()
+        frappe.logger().info(f"Executing SSH command: {command}")
+
+        stdin, stdout, stderr = ssh.exec_command(command, timeout=600)
+
+        output = stdout.read().decode("utf-8", errors="replace")
+        error = stderr.read().decode("utf-8", errors="replace")
+        exit_code = stdout.channel.recv_exit_status()
+
+        frappe.logger().info(f"SSH command exit code: {exit_code}")
+
+        full_log = f"UNINSTALL APP: {app_name}\n"
+        full_log += f"Site: {site_name}\n"
+        full_log += f"COMMAND: bench --site {site_name} uninstall-app {app_name} --yes\n\n"
+        full_log += f"STDOUT:\n{output}\n\n"
+        if error:
+            full_log += f"STDERR:\n{error}\n"
+        full_log += f"EXIT CODE: {exit_code}"
+
+        if exit_code != 0:
+            return {
+                "success": False,
+                "app": app_name,
+                "log": full_log,
+                "error": error or output
+            }
+
+        return {
+            "success": True,
+            "app": app_name,
+            "log": full_log
+        }
+
+    def run_migrate(self, site_name):
+        """
+        Run bench migrate on a specific site.
+
+        Args:
+            site_name: The site name (e.g., erp105.havano.cloud)
+
+        Returns:
+            dict with success status and log output
+        """
+        bench_dir = self.config["bench_dir"]
+
+        command = (
+            f"cd {self._escape_shell(bench_dir)} && "
+            f"bench --site {self._escape_shell(site_name)} migrate"
+        )
+
+        # Use longer timeout for migration (10 minutes)
+        ssh = self.connect()
+        frappe.logger().info(f"Executing SSH command: {command}")
+
+        stdin, stdout, stderr = ssh.exec_command(command, timeout=600)
+
+        output = stdout.read().decode("utf-8", errors="replace")
+        error = stderr.read().decode("utf-8", errors="replace")
+        exit_code = stdout.channel.recv_exit_status()
+
+        frappe.logger().info(f"SSH command exit code: {exit_code}")
+
+        full_log = f"MIGRATE SITE: {site_name}\n"
+        full_log += f"COMMAND: bench --site {site_name} migrate\n\n"
+        full_log += f"STDOUT:\n{output}\n\n"
+        if error:
+            full_log += f"STDERR:\n{error}\n"
+        full_log += f"EXIT CODE: {exit_code}"
+
+        if exit_code != 0:
+            return {
+                "success": False,
+                "log": full_log,
+                "error": error or output
+            }
+
+        return {
+            "success": True,
+            "log": full_log
+        }
 
     def test_connection(self):
         """Test the SSH connection and Bench availability"""

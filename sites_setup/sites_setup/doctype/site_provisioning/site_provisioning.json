@@ -8,6 +8,7 @@
  "field_order": [
   "requested_subdomain",
   "admin_password",
+  "run_migrate",
   "column_break_main",
   "assigned_site",
   "status",
@@ -34,11 +35,16 @@
   "section_break_details",
   "domain_created",
   "admin_password_set",
+  "migrate_completed",
   "column_break_details",
   "is_unassigned",
   "error_message",
   "section_break_log",
-  "bench_log"
+  "bench_log",
+  "section_break_apps",
+  "app_operation_status",
+  "column_break_apps",
+  "app_operation_log"
  ],
  "fields": [
   {
@@ -58,6 +64,13 @@
    "label": "Admin Password",
    "reqd": 1,
    "description": "Password must be at least 8 characters with uppercase, lowercase, number, and special character (@$!%*?&)"
+  },
+  {
+   "default": "1",
+   "fieldname": "run_migrate",
+   "fieldtype": "Check",
+   "label": "Run Migrate After Provisioning",
+   "description": "Run 'bench migrate' after provisioning to apply any pending database migrations"
   },
   {
    "fieldname": "assigned_site",
@@ -213,6 +226,14 @@
    "description": "Indicates if the admin password was successfully set"
   },
   {
+   "default": "0",
+   "fieldname": "migrate_completed",
+   "fieldtype": "Check",
+   "label": "Migrate Completed",
+   "read_only": 1,
+   "description": "Indicates if bench migrate was successfully run"
+  },
+  {
    "fieldname": "column_break_details",
    "fieldtype": "Column Break"
   },
@@ -240,6 +261,31 @@
    "fieldname": "bench_log",
    "fieldtype": "Long Text",
    "label": "Bench Log",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_apps",
+   "fieldtype": "Section Break",
+   "label": "App Management",
+   "collapsible": 1,
+   "depends_on": "eval:doc.status=='Success'"
+  },
+  {
+   "fieldname": "app_operation_status",
+   "fieldtype": "Select",
+   "label": "App Operation Status",
+   "options": "\nIdle\nRunning\nCompleted\nFailed",
+   "read_only": 1,
+   "description": "Current status of app install/uninstall operations"
+  },
+  {
+   "fieldname": "column_break_apps",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "app_operation_log",
+   "fieldtype": "Long Text",
+   "label": "App Operation Log",
    "read_only": 1
   }
  ],

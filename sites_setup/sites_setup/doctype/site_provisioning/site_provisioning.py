@@ -399,6 +399,36 @@ def run_provisioning(provisioning_name, admin_password):
             provisioning.save(ignore_permissions=True)
             frappe.db.commit()
 
+        # Step 4: Run migrate if requested
+        if provisioning.run_migrate:
+            try:
+                frappe.logger().info(f"Running migrate for {provisioning.assigned_site}")
+                migrate_log = service.run_migrate(provisioning.assigned_site)
+
+                if migrate_log.get("success"):
+                    provisioning.migrate_completed = 1
+                    provisioning.bench_log = (provisioning.bench_log or "") + "\n\n=== BENCH MIGRATE ===\n" + migrate_log.get("log", "")
+                    frappe.logger().info(f"Migrate completed for {provisioning.assigned_site}")
+                else:
+                    # Non-fatal error for migrate
+                    error_msg = migrate_log.get("error", "Unknown error")
+                    frappe.logger().warning(f"Migrate failed for {provisioning.assigned_site}: {error_msg}")
+                    provisioning.bench_log = (provisioning.bench_log or "") + f"\n\n=== BENCH MIGRATE FAILED ===\n{migrate_log.get('log', error_msg)}"
+
+                provisioning.save(ignore_permissions=True)
+                frappe.db.commit()
+            except Exception as e:
+                # Non-fatal error, log it and continue
+                error_msg = f"Failed to run migrate: {str(e)}"
+                frappe.logger().warning(error_msg)
+                provisioning.bench_log = (provisioning.bench_log or "") + f"\n\n=== BENCH MIGRATE FAILED ===\n{error_msg}"
+                provisioning.save(ignore_permissions=True)
+                frappe.db.commit()
+        else:
+            provisioning.bench_log = (provisioning.bench_log or "") + "\n\n=== BENCH MIGRATE ===\nSkipped (run_migrate not enabled)."
+            provisioning.save(ignore_permissions=True)
+            frappe.db.commit()
+
         service.disconnect()
 
         # Mark as success
@@ -598,3 +628,177 @@ def _send_failure_email(provisioning):
         )
     except Exception as e:
         frappe.logger().error(f"Failed to send failure email: {str(e)}")
+
+
+def run_app_management(provisioning_name, apps_to_install=None, apps_to_uninstall=None):
+    """
+    Background job to install/uninstall apps on a site.
+    Continues processing all apps even if some fail.
+    """
+    from sites_setup.sites_setup.ssh_service import ERPSshService
+
+    apps_to_install = apps_to_install or []
+    apps_to_uninstall = apps_to_uninstall or []
+
+    provisioning = frappe.get_doc("Site Provisioning", provisioning_name)
+
+    # Core apps that cannot be uninstalled
+    core_apps = ["frappe", "erpnext"]
+
+    full_log = []
+    failures = []
+    total_operations = len(apps_to_install) + len(apps_to_uninstall)
+    current_operation = 0
+
+    try:
+        frappe.logger().info(
+            f"Starting app management for {provisioning.assigned_site}: "
+            f"install={apps_to_install}, uninstall={apps_to_uninstall}"
+        )
+
+        service = ERPSshService()
+
+        # Process uninstalls first (to free up resources)
+        for app in apps_to_uninstall:
+            current_operation += 1
+
+            # Skip core apps
+            if app in core_apps:
+                msg = f"[{current_operation}/{total_operations}] SKIPPED: Cannot uninstall core app '{app}'"
+                full_log.append(msg)
+                frappe.logger().warning(msg)
+                continue
+
+            try:
+                frappe.logger().info(f"Uninstalling app '{app}' from {provisioning.assigned_site}")
+
+                # Update log with progress
+                progress_msg = f"[{current_operation}/{total_operations}] Uninstalling {app}..."
+                provisioning.db_set("app_operation_log", "\n".join(full_log + [progress_msg]))
+                frappe.db.commit()
+
+                result = service.uninstall_app(provisioning.assigned_site, app)
+
+                if result.get("success"):
+                    msg = f"[{current_operation}/{total_operations}] SUCCESS: Uninstalled '{app}'"
+                    full_log.append(msg)
+                    full_log.append(f"--- Log ---\n{result.get('log', '')}\n-----------")
+                    frappe.logger().info(msg)
+                else:
+                    msg = f"[{current_operation}/{total_operations}] FAILED: Could not uninstall '{app}'"
+                    full_log.append(msg)
+                    full_log.append(f"--- Error ---\n{result.get('error', 'Unknown error')}\n-----------")
+                    failures.append(f"Uninstall {app}: {result.get('error', 'Unknown error')}")
+                    frappe.logger().error(msg)
+
+            except Exception as e:
+                msg = f"[{current_operation}/{total_operations}] ERROR: Exception uninstalling '{app}': {str(e)}"
+                full_log.append(msg)
+                failures.append(f"Uninstall {app}: {str(e)}")
+                frappe.logger().error(msg)
+
+            # Update log after each operation
+            provisioning.db_set("app_operation_log", "\n".join(full_log))
+            frappe.db.commit()
+
+        # Process installs
+        for app in apps_to_install:
+            current_operation += 1
+
+            try:
+                frappe.logger().info(f"Installing app '{app}' on {provisioning.assigned_site}")
+
+                # Update log with progress
+                progress_msg = f"[{current_operation}/{total_operations}] Installing {app}..."
+                provisioning.db_set("app_operation_log", "\n".join(full_log + [progress_msg]))
+                frappe.db.commit()
+
+                result = service.install_app(provisioning.assigned_site, app)
+
+                if result.get("success"):
+                    msg = f"[{current_operation}/{total_operations}] SUCCESS: Installed '{app}'"
+                    full_log.append(msg)
+                    full_log.append(f"--- Log ---\n{result.get('log', '')}\n-----------")
+                    frappe.logger().info(msg)
+                else:
+                    msg = f"[{current_operation}/{total_operations}] FAILED: Could not install '{app}'"
+                    full_log.append(msg)
+                    full_log.append(f"--- Error ---\n{result.get('error', 'Unknown error')}\n-----------")
+                    failures.append(f"Install {app}: {result.get('error', 'Unknown error')}")
+                    frappe.logger().error(msg)
+
+            except Exception as e:
+                msg = f"[{current_operation}/{total_operations}] ERROR: Exception installing '{app}': {str(e)}"
+                full_log.append(msg)
+                failures.append(f"Install {app}: {str(e)}")
+                frappe.logger().error(msg)
+
+            # Update log after each operation
+            provisioning.db_set("app_operation_log", "\n".join(full_log))
+            frappe.db.commit()
+
+        service.disconnect()
+
+        # Determine final status
+        if failures:
+            final_status = "Failed"
+            summary = f"\n\n=== SUMMARY ===\nCompleted with {len(failures)} failure(s):\n" + "\n".join(f"- {f}" for f in failures)
+        else:
+            final_status = "Completed"
+            summary = f"\n\n=== SUMMARY ===\nAll {total_operations} operation(s) completed successfully."
+
+        full_log.append(summary)
+
+        provisioning.db_set("app_operation_status", final_status)
+        provisioning.db_set("app_operation_log", "\n".join(full_log))
+        frappe.db.commit()
+
+        frappe.logger().info(
+            f"App management completed for {provisioning.assigned_site}: status={final_status}"
+        )
+
+    except Exception as e:
+        error_msg = f"App management failed with exception: {str(e)}"
+        frappe.logger().error(error_msg)
+
+        full_log.append(f"\n\n=== FATAL ERROR ===\n{error_msg}")
+
+        provisioning.db_set("app_operation_status", "Failed")
+        provisioning.db_set("app_operation_log", "\n".join(full_log))
+        frappe.db.commit()
+
+
+def run_migrate_job(provisioning_name):
+    """
+    Background job to run bench migrate on a site.
+    """
+    from sites_setup.sites_setup.ssh_service import ERPSshService
+
+    provisioning = frappe.get_doc("Site Provisioning", provisioning_name)
+
+    try:
+        frappe.logger().info(f"Starting migrate for {provisioning.assigned_site}")
+
+        service = ERPSshService()
+        result = service.run_migrate(provisioning.assigned_site)
+        service.disconnect()
+
+        if result.get("success"):
+            provisioning.db_set("migrate_completed", 1)
+            provisioning.db_set("app_operation_status", "Completed")
+            provisioning.db_set("app_operation_log", f"=== BENCH MIGRATE ===\n{result.get('log', '')}\n\n=== SUMMARY ===\nMigration completed successfully.")
+            frappe.logger().info(f"Migrate completed for {provisioning.assigned_site}")
+        else:
+            provisioning.db_set("app_operation_status", "Failed")
+            provisioning.db_set("app_operation_log", f"=== BENCH MIGRATE FAILED ===\n{result.get('log', '')}\n\nError: {result.get('error', 'Unknown error')}")
+            frappe.logger().error(f"Migrate failed for {provisioning.assigned_site}")
+
+        frappe.db.commit()
+
+    except Exception as e:
+        error_msg = f"Migrate failed with exception: {str(e)}"
+        frappe.logger().error(error_msg)
+
+        provisioning.db_set("app_operation_status", "Failed")
+        provisioning.db_set("app_operation_log", f"=== FATAL ERROR ===\n{error_msg}")
+        frappe.db.commit()
